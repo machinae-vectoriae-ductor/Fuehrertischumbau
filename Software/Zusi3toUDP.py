@@ -41,13 +41,9 @@ import threading
 import struct
 import math
 import time
-# import datetime
-import xml.etree.ElementTree as ET
 import serial
 import SchnittstelleLZB
 import SchnittstelleFT
-# import SchnittstelleQDmi
-# import SchnittstelleQEBuLa
 import Textausgabe
 
 # Netzwerkdaten
@@ -59,11 +55,6 @@ Ft1S_Port = 51438         # Sendeport des ersten Steuergeräts des Führertischs
 Ft2_IP = "192.168.111.13" # Adresse des zweiten Steuergeräts des Führertischs
 Ft2E_Port = 51437         # Empfangsport des zweiten Steuergeräts des Führertischs
 Ft2S_Port = 51439         # Sendeport des zweiten Steuergeräts des Führertischs
-QDmi_IP = "127.0.0.1"     # Adresse des QDmi-Rechners
-QDmi_Port = 10001         # Port 10001 für QDmi
-QEBuLa_IP = "127.0.0.1"   # Adresse des QEBuLa-Rechners
-QEBuLa_Port1 = 10005      # Port 10005 für QEBuLa-Fahrplandaten
-QEBuLa_Port2 = 10006      # Port 10006 für QEBuLa-Zugdaten
 
 serLZB = serial.Serial(
     port='COM2',
@@ -255,19 +246,6 @@ Bediendaten = {"FS": 0,          # Fahrschalterstellung
 #               "DI4I13": False,  # 
 #               "DI4I14": False}  # 
 
-EBuLaString = ""
-EBuLaPlan = []
-EBuLaZeile = {"Laufweg"  : "", # Relative Position auf der Simulationsstrecke in m
-              "vMax"     : "", # Aktuelle Höchstgeschwindigkeit in m/s
-              "km"       : "", # Streckenkilometer in m
-              "Gleis"    : "", # 1 = Eingleisig, 2 = Regelgleis, 3 = Gegengleis
-              "Tunnel"   : "", # Tunnel
-              "IconNr"   : "", # Nummer des Piktogramms
-              "Text"     : "", # Freier Text
-              "Saegezahn": "", # Sägezahnlinien
-              "Ankunft"  : "", # Ankunftszeit
-              "Abfahrt"  : ""  # Abfahrtszeit
-              }
 
 stop_threads = False
 
@@ -414,44 +392,6 @@ def ZusiSinglezuFloat(Speicher):
 def ZusiStringtoString(Speicher,Laenge):
     AnzeigeString = Speicher[:Laenge].decode('iso-8859-1')
     return AnzeigeString
-
-def get_fahrplan(EBuLaString):
-    EBuLaPlan = []
-    root = ET.fromstring(EBuLaString)
-    # for elm in root.iter():
-        # if "Buchfahrplan" in elm.tag:
-        #     zugdaten = elm.attrib
-    for i in range(len(root[1])):
-        if "FplZeile" in root[1][i].tag:    
-            if "FplLaufweg" in root[1][i].attrib:
-                j = EBuLaZeile.copy()
-                j["Laufweg"] = float(root[1][i].attrib["FplLaufweg"])
-                if "FplRglGgl" in root[1][i].attrib:
-                    j["Gleis"] = root[1][i].attrib["FplRglGgl"]
-                for k in range(len(root[1][i])):
-                    if "FplvMax" in root[1][i][k].tag:
-                        if "vMax" in root[1][i][k].attrib:
-                            j["vMax"] = root[1][i][k].attrib["vMax"]
-                    if "Fplkm" in root[1][i][k].tag:
-                        if "km" in root[1][i][k].attrib:
-                            j["km"] = root[1][i][k].attrib["km"]
-                    if "FplIcon" in root[1][i][k].tag:
-                        if "FplIconNr" in root[1][i][k].attrib:
-                            j["IconNr"] = root[1][i][k].attrib["FplIconNr"]
-                    if "FplName" in root[1][i][k].tag:
-                        if "FplNameText" in root[1][i][k].attrib:
-                            j["Text"] = root[1][i][k].attrib["FplNameText"]
-                    if "FplSaegelinien" in root[1][i][k].tag:
-                        if "FplAnzahl" in root[1][i][k].attrib:
-                            j["Saegezahn"] = root[1][i][k].attrib["FplAnzahl"]
-                    if "FplAnk" in root[1][i][k].tag:
-                        if "Ank" in root[1][i][k].attrib:
-                            j["Ankunft"] = root[1][i][k].attrib["Ank"]
-                    if "FplAbf" in root[1][i][k].tag:
-                        if "Abf" in root[1][i][k].attrib:
-                            j["Abfahrt"] = root[1][i][k].attrib["Abf"]
-                EBuLaPlan.append(j)            
-    return EBuLaPlan
 
 def BedienungnachZusiElement(Tastaturzuordnung,Tastaturkommando,Tastaturaktion,Kombischalterfunktion,Spezialparameter):
     Schalterdaten = bytearray()
@@ -707,9 +647,6 @@ Ft1ESocket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)  # Erstellen des U
 Ft1SSocket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)  # Erstellen des UDP Sende-Socket für den Führertischrechner 1
 Ft2ESocket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)  # Erstellen des UDP Empfangs-Socket für den Führertischrechner 2
 Ft2SSocket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)  # Erstellen des UDP Sende-Socket für den Führertischrechner 2
-QDmiSocket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)  # Erstellen des UDP Socket für QDmi
-QEBuLaSocket1 = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)  # Erstellen des UDP Socket für QEBuLa-Fahrplandaten
-QEBuLaSocket2 = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)  # Erstellen des UDP Socket für QEBuLa-Zugdaten
 
 try:
     ZusiSocket.connect((Zusi_IP, Zusi_Port))  # Binde Socket an die Netzwerkadresse
@@ -743,8 +680,6 @@ try:
                 Ft1ESocket.sendto(SchnittstelleFT.UDPAnzeigeDatenErzeugenFT1(Anzeigedaten),(Ft1_IP, Ft1E_Port))
                 Ft2ESocket.sendto(SchnittstelleFT.UDPAnzeigeDatenErzeugenFT2(Anzeigedaten),(Ft2_IP, Ft2E_Port))
                 SchnittstelleLZB.updateData(Anzeigedaten,LZBDaten)
-                # QEbulaZug = SchnittstelleQEBuLa.UDPZugDatenErzeugenQEBuLa(Anzeigedaten)
-                # QEBuLaSocket2.sendto(QEbulaZug,(QEBuLa_IP, QEBuLa_Port2))
                 # Textausgabe.Textanzeige(Anzeigedaten,Anzeigedatenalt)
                 Anzeigedatenalt = Anzeigedaten.copy()
             elif Ebene == 1:
@@ -1024,15 +959,6 @@ try:
                 elif nodeId[2] == 0x0004:   # Buchfahrplanrohdatei
                     EBuLaString = ZusiStringtoString(Speicher,PacketLaenge-2)
                     print("Fahrplan:", EBuLaString)
-                    # get_fahrplan(EBuLaString)
-                    # print("Fahrplan:")
-                    # for i in range(len(EBuLaPlan)):
-                    #     print(EBuLaPlan[i])
-                    #     print("")
-                    # QEbulaPlan = SchnittstelleQEBuLa.UDPFahrplanDatenErzeugenQEBuLa(EBuLaPlan)
-                    # QEBuLaSocket1.sendto(QEbulaPlan,(QEBuLa_IP, QEBuLa_Port1))
-                    # with open("EBuLa.xml", "w", encoding="iso-8859-1") as EBuLaDatei:
-                    #     EBuLaDatei.write(EBuLaString)
 
 finally:
     ZusiSocket.close()
@@ -1040,5 +966,4 @@ finally:
     Ft1SSocket.close()
     Ft2ESocket.close()
     Ft2SSocket.close()
-    QDmiSocket.close()
     stop_threads = True 
