@@ -28,7 +28,7 @@ TH Koeln, hereby disclaims all copyright interest in the software 'Schnittstelle
  the driver's desk computers and the and the adapter programme).
 
 Wolfgang Evers
-Versionsdatum 23.05.2022
+Versionsdatum 23.06.2022
 
 """
 
@@ -60,7 +60,7 @@ def UDPAnzeigeDatenErzeugenFT1(Anzeigedaten):
     UDPDaten.extend(struct.pack("f", Anzeigedaten["Iol"]))                        # Byte 34-37
     UDPDaten.extend(struct.pack("f", Anzeigedaten["Umot"]))                       # Byte 38-41
     UDPDaten.extend(struct.pack("f", Anzeigedaten["Nmot"]))                       # Byte 42-45
-    UDPDaten.append(Anzeigedaten["AnzModus"] & 0xff)                              # Byte 46
+    UDPDaten.extend(struct.pack("H", Anzeigedaten["AnzModus"]))                   # Byte 46-47
     return UDPDaten
 
 # Verarbeitung Daten aus dem UDP-Telegramm vom Führertisch 1
@@ -100,14 +100,16 @@ def UDPAnzeigeDatenAuswertenFT1(UDPDaten, Anzeigedaten):
     Anzeigedaten["Umot"] = hilf[0]
     hilf = struct.unpack("f",UDPDaten[42:46])
     Anzeigedaten["Nmot"] = hilf[0]
-    Anzeigedaten["AnzModus"] = UDPDaten[46]
+    hilf = struct.unpack("H",UDPDaten[46:48])
+    Anzeigedaten["AnzModus"] = hilf[0]
     return None
 
 def UDPBedienDatenErzeugenFT1(Bediendaten):
     UDPDaten = bytearray()
     UDPDaten.append(max(0,min(255,(Bediendaten["FS"] << 4) + Bediendaten["RS"] + 1)))
     UDPDaten.extend(struct.pack("f", Bediendaten["AFSZ"]))
-    UDPDaten.extend(struct.pack("f", Bediendaten["BS"]))
+    UDPDaten.append(Bediendaten["BS"] & 0xf)
+    UDPDaten.extend(struct.pack("f", Bediendaten["ABS"]))
     UDPDaten.append((Bediendaten["TSifa"]  << 7) +
                     (Bediendaten["SLP"]    << 6) +
                     (Bediendaten["SLST"]   << 5) +
@@ -143,52 +145,54 @@ def UDPBedienDatenErzeugenFT1(Bediendaten):
     return UDPDaten
 
 def UDPBedienDatenAuswertenFT1(UDPDaten, Bediendaten):
-    Bediendaten["FS"] = (UDPDaten[0] >> 4) & 0xf
-    Bediendaten["RS"] = (UDPDaten[0] & 0xf) - 1
+    Bediendaten["FS"]     = (UDPDaten[0] >> 4) & 0xf
+    Bediendaten["RS"]     = (UDPDaten[0] & 0xf) - 1
     hilf = struct.unpack("f",UDPDaten[1:5])
     Bediendaten["AFSZ"]   = hilf[0]
-    hilf = struct.unpack("f",UDPDaten[5:9])
-    Bediendaten["BS"]     = hilf[0]
-    Bediendaten["TSifa"]  = (UDPDaten[9] & 0x80 == 128)
-    Bediendaten["SLP"]    = (UDPDaten[9] & 0x40 == 64)
-    Bediendaten["SLST"]   = (UDPDaten[9] & 0x20 == 32)
-    Bediendaten["SLSW"]   = (UDPDaten[9] & 0x10 == 16)
-    Bediendaten["TSAN"]   = (UDPDaten[9] & 0x8 == 8)
-    Bediendaten["TSAH"]   = (UDPDaten[9] & 0x4 == 4)
-    Bediendaten["THSA"]   = (UDPDaten[9] & 0x2 == 2)
-    Bediendaten["THSE"]   = (UDPDaten[9] & 0x1 == 1)
-    Bediendaten["SZSE"]   = (UDPDaten[10] & 0x80 == 128)
-    Bediendaten["TZSA"]   = (UDPDaten[10] & 0x40 == 64)
-    Bediendaten["Tb"]     = (UDPDaten[10] & 0x20 == 32)
-    Bediendaten["Tf"]     = (UDPDaten[10] & 0x10 == 16)
-    Bediendaten["Tw"]     = (UDPDaten[10] & 0x8 == 8)
-    Bediendaten["STFG0"]  = (UDPDaten[10] & 0x4 == 4)
-    Bediendaten["STFGR"]  = (UDPDaten[10] & 0x2 == 2)
-    Bediendaten["STFGL"]  = (UDPDaten[10] & 0x1 == 1)
-    Bediendaten["TZLA"]   = (UDPDaten[11] & 0x80 == 128)
-    Bediendaten["TZLE"]   = (UDPDaten[11] & 0x40 == 64)
-    Bediendaten["TSAND"]  = (UDPDaten[11] & 0x20 == 32)
-    Bediendaten["TSSB"]   = (UDPDaten[11] & 0x10 == 16)
-    Bediendaten["TBL"]    = (UDPDaten[11] & 0x8 == 8)
-    Bediendaten["SFL"]    = (UDPDaten[11] & 0x4 == 4)
-    Bediendaten["SSL"]    = (UDPDaten[11] & 0x2 == 2)
-    Bediendaten["TMF"]    = (UDPDaten[11] & 0x1 == 1)
-    Bediendaten["TTFGTZ"] = (UDPDaten[12] & 0x80 == 128)
-    Bediendaten["TTFGT0"] = (UDPDaten[12] & 0x40 == 64)
-    Bediendaten["TFIS"]   = (UDPDaten[12] & 0x20 == 32)
-    # Bediendaten[""] = (UDPDaten[12] & 0x10 == 16)
-    # Bediendaten[""] = (UDPDaten[12] & 0x8 == 8)
-    # Bediendaten[""] = (UDPDaten[12] & 0x4 == 4)
-    # Bediendaten[""] = (UDPDaten[12] & 0x2 == 2)
-    # Bediendaten[""] = (UDPDaten[12] & 0x1 == 1)
+    Bediendaten["BS"]     = UDPDaten[5]
+    hilf = struct.unpack("f",UDPDaten[6:10])
+    Bediendaten["ABS"]    = hilf[0]
+    Bediendaten["TSifa"]  = (UDPDaten[10] & 0x80 == 128)
+    Bediendaten["SLP"]    = (UDPDaten[10] & 0x40 == 64)
+    Bediendaten["SLST"]   = (UDPDaten[10] & 0x20 == 32)
+    Bediendaten["SLSW"]   = (UDPDaten[10] & 0x10 == 16)
+    Bediendaten["TSAN"]   = (UDPDaten[10] & 0x8 == 8)
+    Bediendaten["TSAH"]   = (UDPDaten[10] & 0x4 == 4)
+    Bediendaten["THSA"]   = (UDPDaten[10] & 0x2 == 2)
+    Bediendaten["THSE"]   = (UDPDaten[10] & 0x1 == 1)
+    Bediendaten["SZSE"]   = (UDPDaten[11] & 0x80 == 128)
+    Bediendaten["TZSA"]   = (UDPDaten[11] & 0x40 == 64)
+    Bediendaten["Tb"]     = (UDPDaten[11] & 0x20 == 32)
+    Bediendaten["Tf"]     = (UDPDaten[11] & 0x10 == 16)
+    Bediendaten["Tw"]     = (UDPDaten[11] & 0x8 == 8)
+    Bediendaten["STFG0"]  = (UDPDaten[11] & 0x4 == 4)
+    Bediendaten["STFGR"]  = (UDPDaten[11] & 0x2 == 2)
+    Bediendaten["STFGL"]  = (UDPDaten[11] & 0x1 == 1)
+    Bediendaten["TZLA"]   = (UDPDaten[12] & 0x80 == 128)
+    Bediendaten["TZLE"]   = (UDPDaten[12] & 0x40 == 64)
+    Bediendaten["TSAND"]  = (UDPDaten[12] & 0x20 == 32)
+    Bediendaten["TSSB"]   = (UDPDaten[12] & 0x10 == 16)
+    Bediendaten["TBL"]    = (UDPDaten[12] & 0x8 == 8)
+    Bediendaten["SFL"]    = (UDPDaten[12] & 0x4 == 4)
+    Bediendaten["SSL"]    = (UDPDaten[12] & 0x2 == 2)
+    Bediendaten["TMF"]    = (UDPDaten[12] & 0x1 == 1)
+    Bediendaten["TTFGTZ"] = (UDPDaten[13] & 0x80 == 128)
+    Bediendaten["TTFGT0"] = (UDPDaten[13] & 0x40 == 64)
+    Bediendaten["TFIS"]   = (UDPDaten[13] & 0x20 == 32)
+    # Bediendaten[""] = (UDPDaten[13] & 0x10 == 16)
+    # Bediendaten[""] = (UDPDaten[13] & 0x8 == 8)
+    # Bediendaten[""] = (UDPDaten[13] & 0x4 == 4)
+    # Bediendaten[""] = (UDPDaten[13] & 0x2 == 2)
+    # Bediendaten[""] = (UDPDaten[13] & 0x1 == 1)
     return None
 
 def UDPAnzeigeDatenErzeugenFT2(Anzeigedaten):
     UDPDaten = bytearray()
-    UDPDaten.extend(struct.pack("f", Anzeigedaten["DruckHL"]))
-    UDPDaten.extend(struct.pack("f", Anzeigedaten["DruckC"]))
-    UDPDaten.extend(struct.pack("f", Anzeigedaten["DruckHB"]))
-    UDPDaten.extend(struct.pack("f", Anzeigedaten["DruckZ"]))
+    UDPDaten.extend(struct.pack("f", Anzeigedaten["DruckHL"]))                    # Byte  0- 3
+    UDPDaten.extend(struct.pack("f", Anzeigedaten["DruckC"]))                     # Byte  4- 7
+    UDPDaten.extend(struct.pack("f", Anzeigedaten["DruckHB"]))                    # Byte  8-11
+    UDPDaten.extend(struct.pack("f", Anzeigedaten["DruckZ"]))                     # Byte 12-15
+    UDPDaten.extend(struct.pack("H", Anzeigedaten["AnzModus"]))                   # Byte 16-17
     return UDPDaten
 
 def UDPAnzeigeDatenAuswertenFT2(UDPDaten,Anzeigedaten):
@@ -200,6 +204,8 @@ def UDPAnzeigeDatenAuswertenFT2(UDPDaten,Anzeigedaten):
     Anzeigedaten["DruckHB"] = hilf[0] # Hauptluftbehälterdruck
     hilf = struct.unpack("f",UDPDaten[12:16])
     Anzeigedaten["DruckZ"]  = hilf[0] # Zeitbehälterdruck
+    hilf = struct.unpack("H",UDPDaten[16:18])
+    Anzeigedaten["AnzModus"] = hilf[0]
     return None
 
 def UDPBedienDatenErzeugenFT2(Bediendaten):

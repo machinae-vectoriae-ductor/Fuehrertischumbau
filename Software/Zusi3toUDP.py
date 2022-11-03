@@ -32,7 +32,7 @@ TH Koeln, hereby disclaims all copyright interest in
 the software 'Zusi3toUDP' (a software for TCP Client for Zusi 3).
 
 Wolfgang Evers
-Versionsdatum 20.05.2022
+Versionsdatum 18.10.2022
 
 """
 
@@ -41,9 +41,14 @@ import threading
 import struct
 import math
 import time
+# import datetime
+import xml.etree.ElementTree as ET
 import serial
+import Zusi3Fahrzeugdaten
 import SchnittstelleLZB
 import SchnittstelleFT
+# import SchnittstelleQDmi
+# import SchnittstelleQEBuLa
 import Textausgabe
 
 # Netzwerkdaten
@@ -55,6 +60,11 @@ Ft1S_Port = 51438         # Sendeport des ersten Steuergeräts des Führertischs
 Ft2_IP = "192.168.111.13" # Adresse des zweiten Steuergeräts des Führertischs
 Ft2E_Port = 51437         # Empfangsport des zweiten Steuergeräts des Führertischs
 Ft2S_Port = 51439         # Sendeport des zweiten Steuergeräts des Führertischs
+# QDmi_IP = "127.0.0.1"     # Adresse des QDmi-Rechners
+# QDmi_Port = 10001         # Port 10001 für QDmi
+# QEBuLa_IP = "127.0.0.1"   # Adresse des QEBuLa-Rechners
+# QEBuLa_Port1 = 10005      # Port 10005 für QEBuLa-Fahrplandaten
+# QEBuLa_Port2 = 10006      # Port 10006 für QEBuLa-Zugdaten
 
 serLZB = serial.Serial(
     port='COM2',
@@ -129,12 +139,12 @@ Anzeigedaten = {"Vist": 0.0,           # Geschwindigkeit in km/h
                 "Iol": 0.0,            # Oberstrom in A
                 "Umot": 0.0,           # Motorspannung in V
                 "Nmot": 0.0,           # Dieselmotordrehzahl in 1/min
-                "AnzModus": 5,         # Anzeigemodus
+                "AnzModus": 299,       # Anzeigemodus
                 "DruckHB": 0.0,        # Druck Hauptluftbehälter in bar
                 "DruckHL": 0.0,        # Druck Hauptluftleitung in bar
                 "DruckZ": 0.0,         # Druck Zeitbehälter in bar
                 "DruckC": 0.0,         # Druck Bremszylinder in bar
-                "TuerSystem": 0,       # Türsystem
+                "TuerSystem": 0,       # Bauart des Türsystems
                 "TuerL": 0,            # Status Türen links
                 "TuerR": 0,            # Status Türen rechts
                 "Streckenkm": 0,       # Streckenkilometer in m
@@ -145,6 +155,45 @@ Anzeigedaten = {"Vist": 0.0,           # Geschwindigkeit in km/h
                 "NVR": ""}             # Eindeutige Fahrzeugnummer des Tfz
 
 Anzeigedatenalt = Anzeigedaten.copy()
+AnzeigedatenGrundstellung = Anzeigedaten.copy()
+
+Anzeigedatentemp = {"LM85-bool": False,       # Leuchtmelder 85 Bit
+                    "LM85-int": 0,            # Leuchtmelder 85 Byte
+                    "LM70-bool": False,       # Leuchtmelder 70
+                    "LM70-int": 0,            # Leuchtmelder 70
+                    "LM55-bool": False,       # Leuchtmelder 55
+                    "LM55-int": 0,            # Leuchtmelder 55
+                    "LM1000Hz-bool": False,   # Leuchtmelder 1000 Hz
+                    "LM1000Hz-int": 0,        # Leuchtmelder 1000 Hz
+                    "LM500Hz-bool": False,    # Leuchtmelder 500 Hz
+                    "LM500Hz-int": 0,         # Leuchtmelder 500 Hz
+                    "LMB40-bool": False,      # Leuchtmelder Befehl 40
+                    "LMB40-int": 0,           # Leuchtmelder Befehl 40
+                    "LMH-bool": False,        # Leuchtmelder H (Nothalt)
+                    "LMH-int": 0,             # Leuchtmelder H (Nothalt)
+                    "LMG-bool": False,        # Leuchtmelder G (Geschwindigkeit)
+                    "LMG-int": 0,             # Leuchtmelder G (Geschwindigkeit)
+                    "LME40-bool": False,      # Leuchtmelder E40 (Ersatzauftrag)
+                    "LME40-int": 0,           # Leuchtmelder E40 (Ersatzauftrag)
+                    "LMEL-bool": False,       # Leuchtmelder EL
+                    "LMEL-int": 0,            # Leuchtmelder EL
+                    "LMEnde-bool": False,     # Leuchtmelder Ende
+                    "LMEnde-int": 0,          # Leuchtmelder Ende
+                    "LMV40-bool": False,      # Leuchtmelder V40
+                    "LMV40-int": 0,           # Leuchtmelder V40
+                    "LMB-bool": False,        # Leuchtmelder B (Betrieb)
+                    "LMB-int": 0,             # Leuchtmelder B (Betrieb)
+                    "LMS-bool": False,        # Leuchtmelder S (Schnellbremsung)
+                    "LMS-int": 0,             # Leuchtmelder S (Schnellbremsung)
+                    "LMUe-bool": False,       # Leuchtmelder Ü (Übertragung)
+                    "LMUe-int": 0,            # Leuchtmelder Ü (Übertragung)
+                    "LMLZBStoer-bool": False, # Leuchtmelder LZB Störung
+                    "LMLZBStoer-int": 0,      # Leuchtmelder LZB Störung
+                    "LMStoer-bool": False,    # Leuchtmelder Störung
+                    "LMStoer-int": 0,         # Leuchtmelder Störung
+                    "FSt": 0}                 # Fahrstufe
+
+AnzeigeLock = threading.Lock()
 
 LZBDaten =     [0x61,    #Byte_01 - Statisch  - Start
                 0x00,    #Byte_02 - Statisch  - Irrelevant für MFA   
@@ -197,55 +246,115 @@ LZBDaten =     [0x61,    #Byte_01 - Statisch  - Start
                 0x00,    #Byte_49 - Dynamisch - Spaltenparität
                 0x7F]    #Byte_50 - Statisch  - Telegramm Ende
 
-Bediendaten = {"FS": 0,          # Fahrschalterstellung
-               "AFSZ": 0.0,      # Fahrschalter Sollwert Zugkraft in %
-               "RS": 0,          # Richtungsschalter Stellung
-               "TSifa": False,   # Taster Sifa
-               "FbV": 0,         # Führerbremsventilstellung
-               "DruckFbVA": 0.0, # Führerbremsventil A-Druck in bar
-               "FbVAg": False,   # Führerbremsventil Angleicher
-               "FbVSchl": False, # Führerbremsventil Schlüssel
-               "BS": 0.0,        # Bremssteller Sollwert Bremskraft in %
-               "ZbVBr": False,   # Zusatzbremsventil Bremsen
-               "ZbVLoe": False,  # Zusatzbremsventil Lösen
-               "SLP": False,     # Schalter Luftpresser
-               "SLST": False,    # Schalter Lüfter stark
-               "SLSW": False,    # Schalter Lüfter schwach
-               "TSAN": False,    # Taster Stromabnehmer nieder
-               "TSAH": False,    # Taster Stromabnehmer hoch
-               "THSA": False,    # Taster Hauptschalter Aus
-               "THSE": False,    # Taster Hauptschalter Ein
-               "SZSE": False,    # Schalter Zugsammelschiene Ein
-               "TZSA": False,    # Taster Zugsammelschiene An
-               "Tb": False,      # Taster Indusi Befehl
-               "Tf": False,      # Taster Indusi Frei
-               "Tw": False,      # Taster Indusi Wachsam
-               "STFG0": False,   # Schalter Türfreigabe 0
-               "STFGR": False,   # Schalter Türfreigabe rechts
-               "STFGL": False,   # Schalter Türfreigabe links
-               "TZLA": False,    # Taster Zugbeleuchtung Aus
-               "TZLE": False,    # Taster Zugbeleuchtung Ein
-               "TSAND": False,   # Taster Sanden
-               "TSSB": False,    # Taster Schleuderschutzbremse
-               "TBL": False,     # Taster Bremse lösen
-               "SFL": False,     # Schalter Fernlicht
-               "SSL": False,     # Schalter Signallicht
-               "TMF": False,     # Taster Makrofon
-               "TTFGTZ": False,  # Taster Türfreigabe TZ
-               "TTFGT0": False,  # Taster Türfreigabe T0
-               "TFIS": False}    # Taster FIS-Fortschaltung
-#               "DI1I1": False,   # 
-#               "DI1I2": False,   # 
-#               "DI1I3": False,   # 
-#               "DI1I4": False,   # Taster Leuchtmelder prüfen
-#               "DI1I5": False,   # Taster Störung quittieren
-#               "DI1I6": False,   # Fahrschalter Schnell-Auf-Befehl
-#               "DI4I10": False,  # Schalter Heizen
-#               "DI4I11": False,  # Schalter Lüften
-#               "DI4I12": False,  # 
-#               "DI4I13": False,  # 
-#               "DI4I14": False}  # 
+Bediendaten = {"FS"              : 0,     # Fahrschalterstellung
+               "AFSZ"            : 0.0,   # Fahrschalter Sollwert Zugkraft in %
+               "Sollfahrstufe"   : 0,     # Nachlaufsteuerung Sollfahrstufe
+               "RS"              : 0,     # Richtungsschalter Stellung
+               "TSifa"           : False, # Taster Sifa
+               "FbV"             : 0,     # Führerbremsventilstellung
+               "DruckFbVA"       : 0.0,   # Führerbremsventil A-Druck in bar
+               "FbVAg"           : False, # Führerbremsventil Angleicher
+               "FbVSchl"         : False, # Führerbremsventil Schlüssel
+               "BS"              : 0,     # Bremsstellerstellung
+               "ABS"             : 0.0,   # Bremssteller Sollwert Bremskraft in %
+               "ZbVBr"           : False, # Zusatzbremsventil Bremsen
+               "ZbVLoe"          : False, # Zusatzbremsventil Lösen
+               "SLP"             : False, # Schalter Luftpresser
+               "SLST"            : False, # Schalter Lüfter stark
+               "SLSW"            : False, # Schalter Lüfter schwach
+               "TSAN"            : False, # Taster Stromabnehmer nieder
+               "TSAH"            : False, # Taster Stromabnehmer hoch
+               "THSA"            : False, # Taster Hauptschalter Aus
+               "THSE"            : False, # Taster Hauptschalter Ein
+               "SZSE"            : False, # Schalter Zugsammelschiene Ein
+               "TZSA"            : False, # Taster Zugsammelschiene An
+               "Tb"              : False, # Taster Indusi Befehl
+               "Tf"              : False, # Taster Indusi Frei
+               "Tw"              : False, # Taster Indusi Wachsam
+               "STFG0"           : False, # Schalter Türfreigabe 0
+               "STFGR"           : False, # Schalter Türfreigabe rechts
+               "STFGL"           : False, # Schalter Türfreigabe links
+               "TZLA"            : False, # Taster Zugbeleuchtung Aus
+               "TZLE"            : False, # Taster Zugbeleuchtung Ein
+               "TSAND"           : False, # Taster Sanden
+               "TSSB"            : False, # Taster Schleuderschutzbremse
+               "TBL"             : False, # Taster Bremse lösen
+               "SFL"             : False, # Schalter Fernlicht
+               "SSL"             : False, # Schalter Signallicht
+               "TMF"             : False, # Taster Makrofon
+               "TTFGTZ"          : False, # Taster Türfreigabe TZ
+               "TTFGT0"          : False, # Taster Türfreigabe T0
+               "TFIS"            : False, # Taster FIS-Fortschaltung
+#               "DI1I1"           : False, # 
+#               "DI1I2"           : False, # 
+#               "DI1I3"           : False, # 
+#               "DI1I4"           : False, # Taster Leuchtmelder prüfen
+#               "DI1I5"           : False, # Taster Störung quittieren
+#               "DI1I6"           : False, # Fahrschalter Schnell-Auf-Befehl
+#               "DI4I10"          : False, # Schalter Heizen
+#               "DI4I11"          : False, # Schalter Lüften
+#               "DI4I12"          : False, # 
+#               "DI4I13"          : False, # 
+#               "DI4I14"          : False, #
+               }
 
+Bediendatenalt = Bediendaten.copy()
+
+BedienLock = threading.Lock()
+
+Kombischalterwerte = {"FSAUS"    :     0, # Fahrschalterstellung Schnellaus
+                      "FSAB"     :     1, # Fahrschalterstellung Ab
+                      "FSFAHRT"  :     2, # Fahrschalterstellung Fahrt
+                      "FSAUF"    :     3, # Fahrschalterstellung Auf
+                      "FSFZMIN"  :     4, # Fahrschalterstellung kleinste Zugkraftvorgabe
+                      "FSFZMAX"  :    11, # Fahrschalterstellung größte Zugkraftvorgabe
+                      "Nachlauf" : False, # Nachlaufsteuerung vorhanden
+                      "SW0"      :     1, # Schaltwerksstufe 0
+                      "SWMAX"    :    40, # größte Schaltwerksstufe
+                      "BSSB"     :     0, # Bremssteller Schnellbremsstellung
+                      "BSMAX"    :     1, # Bremssteller größte Bremskraftvorgabe
+                      "BSMIN"    :     8, # Bremssteller kleinste Bremskraftvorgabe
+                      "BSFahr"   :     9, # Bremssteller Fahrstellung
+                      "BSFue"    :    10, # Bremssteller Füllstellung
+                      "FbVSB"    :     0, # Führerbremsventil Schnellbremsstellung
+                      "FbV35"    :     1, # Führerbremsventil Regelstellung 3,5 bar
+                      "FbV47"    :     8, # Führerbremsventil Regelstellung 4,7 bar
+                      "FbVFahr"  :     9, # Führerbremsventil Fahrstellung
+                      "FbVFue"   :    10, # Führerbremsventil Füllstellung
+                      "RSR"      :     0, # Richtungschalterstellung R
+                      "RS0"      :     1, # Richtungschalterstellung 0
+                      "RSM"      :     2, # Richtungschalterstellung M
+                      "RSV"      :     3  # Richtungschalterstellung V
+                     }
+
+Zugverbandsdaten = []
+ZugverbandsdatenStruktur = {"Fahrzeugdateiname" : "", # Fahrzeugdateiname
+                            "Beschreibung"      : "", # Fahrzeugbeschreibung
+                            "vMax"              : 0 , # Fahrzeughöchstgeschwindigkeit
+                            "Baureihenangabe"   : "", # Baureihenangabe aus Fahrzeugdatei
+                            "Traktionsmodus"    : 0 , # Traktionsmodus: 0: Eigener Tf, 1: Mehrfachtraktion, 2: Kalt
+                            "NVR"               : "", # NVR-Nummer
+                            "Achszahl"          : 0,  # Anzahl Achsen
+                            "Lokstatus"         : 0,  # Lokstatus 0: Status unbekannt, 1: Fahrzeug ist eine Lokomotive, 2: Fahrzeug ist keine Lokomotive
+                            "Int_Fzgnr"         : ""  # Interne Fahrzeugnummer
+                           }
+Zugverbandsdatenvollständig = False
+Steuerwagen = False
+
+
+EBuLaString = ""
+EBuLaPlan = []
+EBuLaZeile = {"Laufweg"  : "", # Relative Position auf der Simulationsstrecke in m
+              "vMax"     : "", # Aktuelle Höchstgeschwindigkeit in m/s
+              "km"       : "", # Streckenkilometer in m
+              "Gleis"    : "", # 1 = Eingleisig, 2 = Regelgleis, 3 = Gegengleis
+              "Tunnel"   : "", # Tunnel
+              "IconNr"   : "", # Nummer des Piktogramms
+              "Text"     : "", # Freier Text
+              "Saegezahn": "", # Sägezahnlinien
+              "Ankunft"  : "", # Ankunftszeit
+              "Abfahrt"  : ""  # Abfahrtszeit
+             }
 
 stop_threads = False
 
@@ -297,9 +406,11 @@ NEEDED_DATA = bytes([0x00, 0x00, 0x00, 0x00,                         # Knoten Eb
                      0x04, 0x00, 0x00, 0x00, 0x01, 0x00, 0x04, 0x00, # Druck Hauptluftbehälter
                      0x04, 0x00, 0x00, 0x00, 0x01, 0x00, 0x09, 0x00, # Zugkraft gesamt
                      0x04, 0x00, 0x00, 0x00, 0x01, 0x00, 0x0A, 0x00, # Zugkraft pro Achse
+                     0x04, 0x00, 0x00, 0x00, 0x01, 0x00, 0x0B, 0x00, # Zugkraftsoll gesamt
+                     0x04, 0x00, 0x00, 0x00, 0x01, 0x00, 0x0C, 0x00, # Zugkraftsoll pro Achse
                      0x04, 0x00, 0x00, 0x00, 0x01, 0x00, 0x0D, 0x00, # Oberstrom
                      0x04, 0x00, 0x00, 0x00, 0x01, 0x00, 0x0E, 0x00, # Fahrleitungsspannung
-                     # 0x04, 0x00, 0x00, 0x00, 0x01, 0x00, 0x0F, 0x00, # Motordrehzahl
+                     0x04, 0x00, 0x00, 0x00, 0x01, 0x00, 0x0F, 0x00, # Motordrehzahl
                      0x04, 0x00, 0x00, 0x00, 0x01, 0x00, 0x13, 0x00, # Hauptschalter
                      0x04, 0x00, 0x00, 0x00, 0x01, 0x00, 0x15, 0x00, # Fahrstufe
                      0x04, 0x00, 0x00, 0x00, 0x01, 0x00, 0x17, 0x00, # AFB-Sollgeschwindigkeit
@@ -308,24 +419,35 @@ NEEDED_DATA = bytes([0x00, 0x00, 0x00, 0x00,                         # Knoten Eb
                      0x04, 0x00, 0x00, 0x00, 0x01, 0x00, 0x1B, 0x00, # LM Schleudern
                      0x04, 0x00, 0x00, 0x00, 0x01, 0x00, 0x1C, 0x00, # LM Gleiten
                      0x04, 0x00, 0x00, 0x00, 0x01, 0x00, 0x20, 0x00, # LM Hochabbremsung
-                     0x04, 0x00, 0x00, 0x00, 0x01, 0x00, 0x21, 0x00, # LM Schnellbremsung
                      0x04, 0x00, 0x00, 0x00, 0x01, 0x00, 0x22, 0x00, # Status Notbremsung
                      0x04, 0x00, 0x00, 0x00, 0x01, 0x00, 0x23, 0x00, # LM Uhrzeit (digital)
                      0x04, 0x00, 0x00, 0x00, 0x01, 0x00, 0x36, 0x00, # AFB an
                      0x04, 0x00, 0x00, 0x00, 0x01, 0x00, 0x55, 0x00, # Stromabnehmer
+                     0x04, 0x00, 0x00, 0x00, 0x01, 0x00, 0x58, 0x00, # Steuerwagen: LM Getriebe
+                     0x04, 0x00, 0x00, 0x00, 0x01, 0x00, 0x59, 0x00, # Steuerwagen: LM Schleudern
+                     0x04, 0x00, 0x00, 0x00, 0x01, 0x00, 0x5A, 0x00, # Steuerwagen: LM Gleiten
                      0x04, 0x00, 0x00, 0x00, 0x01, 0x00, 0x5E, 0x00, # Druck Zeitbehälter
                      0x04, 0x00, 0x00, 0x00, 0x01, 0x00, 0x61, 0x00, # Kilometrierung (Zugspitze)
                      0x04, 0x00, 0x00, 0x00, 0x01, 0x00, 0x63, 0x00, # Motorspannung
                      0x04, 0x00, 0x00, 0x00, 0x01, 0x00, 0x64, 0x00, # Status Sifa
                      0x04, 0x00, 0x00, 0x00, 0x01, 0x00, 0x65, 0x00, # Status Zugbeeinﬂussung
                      0x04, 0x00, 0x00, 0x00, 0x01, 0x00, 0x66, 0x00, # Status Türsystem
+                     0x04, 0x00, 0x00, 0x00, 0x01, 0x00, 0x7C, 0x00, # Steuerwagen: Zugkraft gesamt
+                     0x04, 0x00, 0x00, 0x00, 0x01, 0x00, 0x7D, 0x00, # Steuerwagen: Zugkraft pro Achse
+                     0x04, 0x00, 0x00, 0x00, 0x01, 0x00, 0x80, 0x00, # Steuerwagen: Oberstrom
+                     0x04, 0x00, 0x00, 0x00, 0x01, 0x00, 0x81, 0x00, # Steuerwagen: Fahrleitungsspannung
+                     0x04, 0x00, 0x00, 0x00, 0x01, 0x00, 0x82, 0x00, # Steuerwagen: Motordrehzahl
+                     0x04, 0x00, 0x00, 0x00, 0x01, 0x00, 0x83, 0x00, # Steuerwagen: Hauptschalter
+                     0x04, 0x00, 0x00, 0x00, 0x01, 0x00, 0x85, 0x00, # Steuerwagen: Fahrstufe
+                     0x04, 0x00, 0x00, 0x00, 0x01, 0x00, 0x8A, 0x00, # Steuerwagen: Motorspannung
                      0x04, 0x00, 0x00, 0x00, 0x01, 0x00, 0x8E, 0x00, # Status Zug
                      0xFF, 0xFF, 0xFF, 0xFF,                         # Ende Knoten Ebene 2
                      0x00, 0x00, 0x00, 0x00,                         # Knoten Ebene 2
                      0x0C, 0x00,                                     # Untergruppe DATA_PROG
-                     0x04, 0x00, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00, # Aktuelle Zugdatei
+                     # 0x04, 0x00, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00, # Aktuelle Zugdatei
                      0x04, 0x00, 0x00, 0x00, 0x01, 0x00, 0x02, 0x00, # Aktuelle Zugnummer
-                     0x04, 0x00, 0x00, 0x00, 0x01, 0x00, 0x04, 0x00, # Buchfahrplanrohdatei
+                     # 0x04, 0x00, 0x00, 0x00, 0x01, 0x00, 0x04, 0x00, # Buchfahrplanrohdatei
+                     0x04, 0x00, 0x00, 0x00, 0x01, 0x00, 0x05, 0x00, # Zug neu übernommen
                      0xFF, 0xFF, 0xFF, 0xFF,                         # Ende Knoten Ebene 2
                      0x00, 0x00, 0x00, 0x00,                         # Knoten Ebene 2
                      0x0B, 0x00,                                     # Untergruppe DATA_OPERATION
@@ -341,17 +463,38 @@ NEEDED_DATA2 = bytes([0x04, 0x00, 0x00, 0x00, # Paketlaenge = 4
                       0x00, 0x00])            # Befehlsvorrat Letzter Befehl
 
 def ZusiBytezuLM(Speicher):
-    if Speicher[0] == 0:
+    if Speicher[0] == 0:   # aus
         AnzeigeLMWert = 0
-    elif Speicher[0] == 1:
+    elif Speicher[0] == 1: # an
         AnzeigeLMWert = 1
-    elif Speicher[0] == 2:
+    elif Speicher[0] == 2: # blinkend
         AnzeigeLMWert = 3
-    elif Speicher[0] == 3:
+    elif Speicher[0] == 3: # invers blinkend
         AnzeigeLMWert = 11
     else:
         AnzeigeLMWert = 5
     return AnzeigeLMWert
+
+def ZusiBytezuLMinvertiert(Speicher):
+    if Speicher[0] == 0:   # aus
+        AnzeigeLMWert = 1
+    elif Speicher[0] == 1: # an
+        AnzeigeLMWert = 0
+    elif Speicher[0] == 2: # blinkend
+        AnzeigeLMWert = 11
+    elif Speicher[0] == 3: # invers blinkend
+        AnzeigeLMWert = 3
+    else:
+        AnzeigeLMWert = 5
+    return AnzeigeLMWert
+
+def ZusiLMVergleich(LMbit, LMbyte, LMName):
+    if LMbit and LMbyte == 0:
+        LM = 1
+        print("Diskrepanz ", LMName, LMbit, LMbyte)
+    else:
+        LM = LMbyte
+    return LM
 
 def ZusiWordzuInt(Speicher):
     AnzeigeWordWert = struct.unpack("H", Speicher[:2])  # Umwandlung von Binärdaten in word
@@ -373,7 +516,7 @@ def ZusiSinglezuInt(Speicher):
     if math.isnan(AnzeigeSingleWert[0]):
         AnzeigeIntWert = 0
     else:
-        AnzeigeIntWert = int(AnzeigeSingleWert[0])  # Umwandlung von float in int
+        AnzeigeIntWert = round(AnzeigeSingleWert[0])  # Umwandlung von float in int
     return AnzeigeIntWert
 
 def ZusiSinglezuInt1000(Speicher):
@@ -392,6 +535,48 @@ def ZusiSinglezuFloat(Speicher):
 def ZusiStringtoString(Speicher,Laenge):
     AnzeigeString = Speicher[:Laenge].decode('iso-8859-1')
     return AnzeigeString
+
+def ZusiStringtoInt(Speicher,Laenge):
+    AnzeigeIntWert = int(Speicher[:Laenge].decode('iso-8859-1'))
+    return AnzeigeIntWert
+
+def get_fahrplan(EBuLaString):
+    EBuLaPlan = []
+    root = ET.fromstring(EBuLaString)
+    # for elm in root.iter():
+        # if "Buchfahrplan" in elm.tag:
+        #     zugdaten = elm.attrib
+    for i in range(len(root[1])):
+        if "FplZeile" in root[1][i].tag:    
+            if "FplLaufweg" in root[1][i].attrib:
+                j = EBuLaZeile.copy()
+                j["Laufweg"] = float(root[1][i].attrib["FplLaufweg"])
+                if "FplRglGgl" in root[1][i].attrib:
+                    j["Gleis"] = root[1][i].attrib["FplRglGgl"]
+                for k in range(len(root[1][i])):
+                    if "FplvMax" in root[1][i][k].tag:
+                        if "vMax" in root[1][i][k].attrib:
+                            j["vMax"] = root[1][i][k].attrib["vMax"]
+                    if "Fplkm" in root[1][i][k].tag:
+                        if "km" in root[1][i][k].attrib:
+                            j["km"] = root[1][i][k].attrib["km"]
+                    if "FplIcon" in root[1][i][k].tag:
+                        if "FplIconNr" in root[1][i][k].attrib:
+                            j["IconNr"] = root[1][i][k].attrib["FplIconNr"]
+                    if "FplName" in root[1][i][k].tag:
+                        if "FplNameText" in root[1][i][k].attrib:
+                            j["Text"] = root[1][i][k].attrib["FplNameText"]
+                    if "FplSaegelinien" in root[1][i][k].tag:
+                        if "FplAnzahl" in root[1][i][k].attrib:
+                            j["Saegezahn"] = root[1][i][k].attrib["FplAnzahl"]
+                    if "FplAnk" in root[1][i][k].tag:
+                        if "Ank" in root[1][i][k].attrib:
+                            j["Ankunft"] = root[1][i][k].attrib["Ank"]
+                    if "FplAbf" in root[1][i][k].tag:
+                        if "Abf" in root[1][i][k].attrib:
+                            j["Abfahrt"] = root[1][i][k].attrib["Abf"]
+                EBuLaPlan.append(j)            
+    return EBuLaPlan
 
 def BedienungnachZusiElement(Tastaturzuordnung,Tastaturkommando,Tastaturaktion,Kombischalterfunktion,Spezialparameter):
     Schalterdaten = bytearray()
@@ -415,46 +600,49 @@ def BedienungnachZusi(Sendebediendaten,Sendebediendatenalt):
     while (not Verbindungsergebnis) or (not Datenanforderungsergebnis):
         time.sleep(1)
     TCPSendeDaten.extend((0x00, 0x00, 0x00, 0x00,
-                      0x02, 0x00,
-                       0x00, 0x00, 0x00, 0x00,
-                       0x0A, 0x01))
-# Fahrschalter
-    if Sendebediendaten["FS"] != Sendebediendatenalt["FS"]:
-        TCPSendeDaten.extend(BedienungnachZusiElement(0x01, 0x00, 0x07, Sendebediendaten["FS"], 0.0))
-# Bislang ist nur ein Auf-Ab-Fahrschalter implementiert
-    # if Sendebediendaten["AFSZ"] != Sendebediendatenalt["AFSZ"]:
-    #     if Sendebediendaten["FS"] == 4:
-    #         TCPSendeDaten.extend(BedienungnachZusiElement(0x01, 0x00, 0x00, 0x10, 1.0))
-    #     else:
-    #         TCPSendeDaten.extend(BedienungnachZusiElement(0x01, 0x00, 0x00, 0x10, 0.0))
-    #     TCPSendeDaten.extend(BedienungnachZusiElement(0x01, 0x00, 0x07, Sendebediendaten["FS"], 0.0))
+                          0x02, 0x00,
+                          0x00, 0x00, 0x00, 0x00,
+                          0x0A, 0x01))
+# Fahrschalter Auf-Ab-Stuerung und Zugkraftvorgabe
+    if (Sendebediendaten["FS"] != Sendebediendatenalt["FS"]) and Sendebediendaten["FS"] == 0:
+        TCPSendeDaten.extend(BedienungnachZusiElement(0x01, 0x00, 0x07, Kombischalterwerte["FSAUS"], 0.0))
+    if (Sendebediendaten["FS"] != Sendebediendatenalt["FS"]) and not Kombischalterwerte["Nachlauf"]:
+        if Sendebediendaten["FS"] == 1:
+            TCPSendeDaten.extend(BedienungnachZusiElement(0x01, 0x00, 0x07, Kombischalterwerte["FSAB"], 0.0))
+        elif Sendebediendaten["FS"] == 2:
+            TCPSendeDaten.extend(BedienungnachZusiElement(0x01, 0x00, 0x07, Kombischalterwerte["FSFAHRT"], 0.0))
+        elif Sendebediendaten["FS"] == 3:
+            TCPSendeDaten.extend(BedienungnachZusiElement(0x01, 0x00, 0x07, Kombischalterwerte["FSAUF"], 0.0))
+    if Sendebediendaten["AFSZ"] != Sendebediendatenalt["AFSZ"] and Sendebediendaten["FS"] == 4 and not Kombischalterwerte["Nachlauf"]:
+        TCPSendeDaten.extend(BedienungnachZusiElement(0x01, 0x00, 0x07, round((Sendebediendaten["AFSZ"] / 100.0) * (Kombischalterwerte["FSFZMAX"] - Kombischalterwerte["FSFZMIN"])) + Kombischalterwerte["FSFZMIN"], 0.0))
+    if (Sendebediendaten["Sollfahrstufe"] != Sendebediendatenalt["Sollfahrstufe"]) and Kombischalterwerte["Nachlauf"]:
+        TCPSendeDaten.extend(BedienungnachZusiElement(0x01, 0x00, 0x07, Sendebediendaten["Sollfahrstufe"], 0.0))
 # Steller dynamische Bremse
     if Sendebediendaten["BS"] != Sendebediendatenalt["BS"]:
-        Bremssteller = 9
-        if Sendebediendaten["BS"] <= 7.0:
-            Bremssteller = 9
-        elif Sendebediendaten["BS"] <= 24.0:
-            Bremssteller = 8
-        elif Sendebediendaten["BS"] <= 37.0:
-            Bremssteller = 7
-        elif Sendebediendaten["BS"] <= 45.0:
-            Bremssteller = 6
-        elif Sendebediendaten["BS"] <= 57.0:
-            Bremssteller = 5
-        elif Sendebediendaten["BS"] <= 60.0:
-            Bremssteller = 4
-        elif Sendebediendaten["BS"] <= 73.0:
-            Bremssteller = 3
-        elif Sendebediendaten["BS"] <= 85.0:
-            Bremssteller = 2
-        else :
-            Bremssteller = 1
-        TCPSendeDaten.extend(BedienungnachZusiElement(0x02, 0x00, 0x07, Bremssteller, 0.0))
+        if Sendebediendaten["BS"] ==  2:
+            TCPSendeDaten.extend(BedienungnachZusiElement(0x02, 0x00, 0x07, Kombischalterwerte["BSSB"], 0.0))
+        elif Sendebediendaten["BS"] == 15:
+            if Sendebediendaten["FbV"] == 14:
+                TCPSendeDaten.extend(BedienungnachZusiElement(0x02, 0x00, 0x07, Kombischalterwerte["BSFue"], 0.0))
+            else:
+                TCPSendeDaten.extend(BedienungnachZusiElement(0x02, 0x00, 0x07, Kombischalterwerte["BSFahr"], 0.0))
+    if (Sendebediendaten["ABS"] != Sendebediendatenalt["ABS"]) and (Sendebediendaten["BS"] == 1):
+        BSStellung = round((1.0 - Sendebediendaten["ABS"] / 100.0) * (Kombischalterwerte["BSMIN"] - Kombischalterwerte["BSMAX"])) + Kombischalterwerte["BSMAX"]
+        TCPSendeDaten.extend(BedienungnachZusiElement(0x02, 0x00, 0x07, BSStellung, 0.0))
 # Führerbremsventil
-# Da die Druckluft am jetzigen Stundplatz des Führertisches fehlt,
-# ist das FbV provisorisch mit dem E-Bremssteller verbunden
-        TCPSendeDaten.extend(BedienungnachZusiElement(0x04, 0x00, 0x07, Bremssteller, 0.0))
-# Angleicher
+    if Sendebediendaten["FbV"] != Sendebediendatenalt["FbV"]:
+        if Sendebediendaten["FbV"] == 2:
+            TCPSendeDaten.extend(BedienungnachZusiElement(0x04, 0x00, 0x07, Kombischalterwerte["FbVSB"], 0.0))
+        elif Sendebediendaten["FbV"] == 14:
+            TCPSendeDaten.extend(BedienungnachZusiElement(0x04, 0x00, 0x07, Kombischalterwerte["FbVFue"], 0.0))
+        elif Sendebediendaten["FbV"] == 15:
+            TCPSendeDaten.extend(BedienungnachZusiElement(0x04, 0x00, 0x07, Kombischalterwerte["FbVFahr"], 0.0))
+        # print(Sendebediendaten["FbV"], Sendebediendaten["DruckFbVA"])
+    if (Sendebediendaten["DruckFbVA"] != Sendebediendatenalt["DruckFbVA"]) & (Sendebediendaten["FbV"] == 1):
+        FbVStellung = round(max(0.0,min(1.0,(Sendebediendaten["DruckFbVA"] - 3.35) / 1.2)) * (Kombischalterwerte["FbV47"] - Kombischalterwerte["FbV35"])) + Kombischalterwerte["FbV35"]
+        TCPSendeDaten.extend(BedienungnachZusiElement(0x04, 0x00, 0x07, FbVStellung, 0.0))
+        # print(Sendebediendaten["FbV"], Sendebediendaten["DruckFbVA"], FbVStellung)
+# Angleicher auf Fahrpultintern20, Workaround wegen Zusi-Fehler
     if Sendebediendaten["FbVAg"] != Sendebediendatenalt["FbVAg"]:
         if Sendebediendaten["FbVAg"]:
             TCPSendeDaten.extend(BedienungnachZusiElement(0x29, 0x1F, 0x01, 0x00, 0.0))
@@ -473,14 +661,14 @@ def BedienungnachZusi(Sendebediendaten,Sendebediendatenalt):
             TCPSendeDaten.extend(BedienungnachZusiElement(0x05, 0x00, 0x07, 0x01, 0.0))
 # Richtungsschalter
     if Sendebediendaten["RS"] != Sendebediendatenalt["RS"]:
-        if Sendebediendaten["RS"] ==  2:
-            TCPSendeDaten.extend(BedienungnachZusiElement(0x07, 0x00, 0x07, 0x03, 0.0))
-        elif Sendebediendaten["RS"] ==  1:
-            TCPSendeDaten.extend(BedienungnachZusiElement(0x07, 0x00, 0x07, 0x02, 0.0))
+        if Sendebediendaten["RS"] == -1:
+            TCPSendeDaten.extend(BedienungnachZusiElement(0x07, 0x00, 0x07, Kombischalterwerte["RSR"], 0.0))
         elif Sendebediendaten["RS"] ==  0:
-            TCPSendeDaten.extend(BedienungnachZusiElement(0x07, 0x00, 0x07, 0x01, 0.0))
-        elif Sendebediendaten["RS"] == -1:
-            TCPSendeDaten.extend(BedienungnachZusiElement(0x07, 0x00, 0x07, 0x00, 0.0))
+            TCPSendeDaten.extend(BedienungnachZusiElement(0x07, 0x00, 0x07, Kombischalterwerte["RS0"], 0.0))
+        elif Sendebediendaten["RS"] ==  1:
+            TCPSendeDaten.extend(BedienungnachZusiElement(0x07, 0x00, 0x07, Kombischalterwerte["RSM"], 0.0))
+        elif Sendebediendaten["RS"] ==  2:
+            TCPSendeDaten.extend(BedienungnachZusiElement(0x07, 0x00, 0x07, Kombischalterwerte["RSV"], 0.0))
 # Sander
     if Sendebediendaten["TSAND"] != Sendebediendatenalt["TSAND"]:
         if Sendebediendaten["TSAND"]:
@@ -488,17 +676,56 @@ def BedienungnachZusi(Sendebediendaten,Sendebediendatenalt):
         else:
             TCPSendeDaten.extend(BedienungnachZusiElement(0x09, 0x30, 0x02, 0x00, 0.0))
 # Türen
-# Türschalter noch nicht richtig implementiert
+    if Sendebediendaten["TTFGT0"] != Sendebediendatenalt["TTFGT0"]:
+        if Sendebediendaten["TTFGT0"]:
+            TCPSendeDaten.extend(BedienungnachZusiElement(0x0A, 0x3B, 0x01, 0x00, 0.0))
+        else:
+            TCPSendeDaten.extend(BedienungnachZusiElement(0x0A, 0x3C, 0x02, 0x00, 0.0))
+    if Sendebediendaten["TZLA"] != Sendebediendatenalt["TZLA"]:
+        if Sendebediendaten["TZLA"]:
+            TCPSendeDaten.extend(BedienungnachZusiElement(0x0A, 0x3D, 0x01, 0x00, 0.0))
+        else:
+            TCPSendeDaten.extend(BedienungnachZusiElement(0x0A, 0x3E, 0x02, 0x00, 0.0))
+    if Sendebediendaten["TZLE"] != Sendebediendatenalt["TZLE"]:
+        if Sendebediendaten["TZLE"]:
+            TCPSendeDaten.extend(BedienungnachZusiElement(0x0A, 0x3F, 0x01, 0x00, 0.0))
+        else:
+            TCPSendeDaten.extend(BedienungnachZusiElement(0x0A, 0x40, 0x02, 0x00, 0.0))
+    # if Sendebediendaten["STFGL"] != Sendebediendatenalt["STFGL"]:
+    #     if Sendebediendaten["STFGL"]:
+    #         TCPSendeDaten.extend(BedienungnachZusiElement(0x0A, 0x3D, 0x01, 0x00, 0.0))
+    #     else:
+    #         TCPSendeDaten.extend(BedienungnachZusiElement(0x0A, 0x3E, 0x02, 0x00, 0.0))
+    # if Sendebediendaten["STFGR"] != Sendebediendatenalt["STFGR"]:
+    #     if Sendebediendaten["STFGR"]:
+    #         TCPSendeDaten.extend(BedienungnachZusiElement(0x0A, 0x3F, 0x01, 0x00, 0.0))
+    #     else:
+    #         TCPSendeDaten.extend(BedienungnachZusiElement(0x0A, 0x40, 0x02, 0x00, 0.0))
     # if Sendebediendaten["STFG0"] != Sendebediendatenalt["STFG0"]:
     #     if Sendebediendaten["STFG0"]:
-    #         TCPSendeDaten.extend(BedienungnachZusiElement(0x0A, 0x2F, 0x01, 0x00, 0.0))
+    #         TCPSendeDaten.extend(BedienungnachZusiElement(0x0A, 0x00, 0x07, 0x00, 0.0))
+    # if Sendebediendaten["STFGL"] != Sendebediendatenalt["STFGL"]:
+    #     if Sendebediendaten["STFGL"]:
+    #         TCPSendeDaten.extend(BedienungnachZusiElement(0x0A, 0x00, 0x07, 0x01, 0.0))
+    # if Sendebediendaten["STFGR"] != Sendebediendatenalt["STFGR"]:
+    #     if Sendebediendaten["STFGR"]:
+    #         TCPSendeDaten.extend(BedienungnachZusiElement(0x0A, 0x00, 0x07, 0x02, 0.0))
+    # if Sendebediendaten["STFG0"] != Sendebediendatenalt["STFG0"]:
+    #     if Sendebediendaten["STFG0"]:
+    #         TCPSendeDaten.extend(BedienungnachZusiElement(0x0A, 0x41, 0x01, 0x00, 0.0))
     #     else:
-    #         TCPSendeDaten.extend(BedienungnachZusiElement(0x0A, 0x30, 0x02, 0x00, 0.0))
-    # if Sendebediendaten["SFL"] != Sendebediendatenalt["SFL"]:
-    #     if Sendebediendaten["SFL"]:
-    #         TCPSendeDaten.extend(BedienungnachZusiElement(0x0B, 0x2F, 0x01, 0x00, 0.0))
-    #     else:
-    #         TCPSendeDaten.extend(BedienungnachZusiElement(0x0B, 0x30, 0x02, 0x00, 0.0))
+    #         TCPSendeDaten.extend(BedienungnachZusiElement(0x0A, 0x42, 0x02, 0x00, 0.0))
+    if Sendebediendaten["TTFGTZ"] != Sendebediendatenalt["TTFGTZ"]:
+        if Sendebediendaten["TTFGTZ"]:
+            TCPSendeDaten.extend(BedienungnachZusiElement(0x0A, 0x41, 0x01, 0x00, 0.0))
+        else:
+            TCPSendeDaten.extend(BedienungnachZusiElement(0x0A, 0x42, 0x02, 0x00, 0.0))
+# Licht
+    if Sendebediendaten["SSL"] != Sendebediendatenalt["SSL"]:
+        if Sendebediendaten["SSL"]:
+            TCPSendeDaten.extend(BedienungnachZusiElement(0x0B, 0x43, 0x01, 0x00, 0.0))
+        else:
+            TCPSendeDaten.extend(BedienungnachZusiElement(0x0B, 0x44, 0x02, 0x00, 0.0))
 # Pfeife
     if Sendebediendaten["TMF"] != Sendebediendatenalt["TMF"]:
         if Sendebediendaten["TMF"]:
@@ -536,43 +763,43 @@ def BedienungnachZusi(Sendebediendaten,Sendebediendatenalt):
 # Hauptschalter
     if Sendebediendaten["THSE"] != Sendebediendatenalt["THSE"]:
         if Sendebediendaten["THSE"]:
-            TCPSendeDaten.extend(BedienungnachZusiElement(0x11, 0x4F, 0x01, 0x00, 0.0))
+            TCPSendeDaten.extend(BedienungnachZusiElement(0x11, 0x4F, 0x03, 0x00, 0.0))
         else:
-            TCPSendeDaten.extend(BedienungnachZusiElement(0x11, 0x50, 0x02, 0x00, 0.0))
+            TCPSendeDaten.extend(BedienungnachZusiElement(0x11, 0x50, 0x04, 0x00, 0.0))
     if Sendebediendaten["THSA"] != Sendebediendatenalt["THSA"]:
         if Sendebediendaten["THSA"]:
-            TCPSendeDaten.extend(BedienungnachZusiElement(0x11, 0x51, 0x01, 0x00, 0.0))
+            TCPSendeDaten.extend(BedienungnachZusiElement(0x11, 0x51, 0x05, 0x00, 0.0))
         else:
-            TCPSendeDaten.extend(BedienungnachZusiElement(0x11, 0x52, 0x02, 0x00, 0.0))
+            TCPSendeDaten.extend(BedienungnachZusiElement(0x11, 0x52, 0x06, 0x00, 0.0))
 # Schleuderschutz
     if Sendebediendaten["TSSB"] != Sendebediendatenalt["TSSB"]:
         if Sendebediendaten["TSSB"]:
             TCPSendeDaten.extend(BedienungnachZusiElement(0x13, 0x31, 0x01, 0x00, 0.0))
         else:
             TCPSendeDaten.extend(BedienungnachZusiElement(0x13, 0x32, 0x02, 0x00, 0.0))
-# Lokbremse lösen (noch nicht richtig implementiert)
-    # if Sendebediendaten["TBL"] != Sendebediendatenalt["TBL"]:
-    #     if Sendebediendaten["TBL"]:
-    #         TCPSendeDaten.extend(BedienungnachZusiElement(0x15, 0x, 0x01, 0x00, 0.0))
-    #     else:
-    #         TCPSendeDaten.extend(BedienungnachZusiElement(0x15, 0x, 0x02, 0x00, 0.0))
+# Lokbremse lösen
+    if Sendebediendaten["TBL"] != Sendebediendatenalt["TBL"]:
+        if Sendebediendaten["TBL"]:
+            TCPSendeDaten.extend(BedienungnachZusiElement(0x15, 0x00, 0x07, 0x01, 0.0))
+        else:
+            TCPSendeDaten.extend(BedienungnachZusiElement(0x15, 0x00, 0x07, 0x00, 0.0))
 # Stromabnehmer
     if Sendebediendaten["TSAH"] != Sendebediendatenalt["TSAH"]:
         if Sendebediendaten["TSAH"]:
-            TCPSendeDaten.extend(BedienungnachZusiElement(0x2B, 0x53, 0x01, 0x00, 0.0))
+            TCPSendeDaten.extend(BedienungnachZusiElement(0x2B, 0x53, 0x03, 0x00, 0.0))
         else:
-            TCPSendeDaten.extend(BedienungnachZusiElement(0x2B, 0x54, 0x02, 0x00, 0.0))
+            TCPSendeDaten.extend(BedienungnachZusiElement(0x2B, 0x54, 0x04, 0x00, 0.0))
     if Sendebediendaten["TSAN"] != Sendebediendatenalt["TSAN"]:
         if Sendebediendaten["TSAN"]:
-            TCPSendeDaten.extend(BedienungnachZusiElement(0x2B, 0x55, 0x01, 0x00, 0.0))
+            TCPSendeDaten.extend(BedienungnachZusiElement(0x2B, 0x55, 0x05, 0x00, 0.0))
         else:
-            TCPSendeDaten.extend(BedienungnachZusiElement(0x2B, 0x56, 0x02, 0x00, 0.0))
-# Luftpresser (noch nicht richtig implementiert)
-    # if Sendebediendaten["TLP"] != Sendebediendatenalt["TLP"]:
-    #     if Sendebediendaten["TLP"]:
-    #         TCPSendeDaten.extend(BedienungnachZusiElement(0x2D, 0x, 0x01, 0x00, 0.0))
-    #     else:
-    #         TCPSendeDaten.extend(BedienungnachZusiElement(0x2D, 0x, 0x02, 0x00, 0.0))
+            TCPSendeDaten.extend(BedienungnachZusiElement(0x2B, 0x56, 0x06, 0x00, 0.0))
+# Luftpresser
+    if Sendebediendaten["SLP"] != Sendebediendatenalt["SLP"]:
+        if Sendebediendaten["SLP"]:
+            TCPSendeDaten.extend(BedienungnachZusiElement(0x2D, 0x5F, 0x01, 0x00, 0.0))
+        else:
+            TCPSendeDaten.extend(BedienungnachZusiElement(0x2D, 0x60, 0x02, 0x00, 0.0))
 #
 # Sendevorlage
     # if Sendebediendaten[""] != Sendebediendatenalt[""]:
@@ -588,57 +815,83 @@ def BedienungnachZusi(Sendebediendaten,Sendebediendatenalt):
     return None
 
 class LZBSendenThread(threading.Thread):
+# In diesem Thread werden die LZB-Daten über die serielle Schnittstelle an das MFA gesendet.
     def __init__(self):
         threading.Thread.__init__(self)
         self.daemon = True
         self.start()
     def run(self):
-        while True:
-            time.sleep(0.48)
+        LZBDatenalt = LZBDaten.copy()
+        while not stop_threads:
+            if LZBDatenalt == LZBDaten:
+                time.sleep(0.1)
+            LZBDatenalt = LZBDaten.copy()
+            AnzeigeLock.acquire()
             serLZB.write(serial.to_bytes(LZBDaten))
-            if stop_threads:
-                break
+            LZBDatenalt = LZBDaten.copy()
+            AnzeigeLock.release()
+            time.sleep(0.48)
 
 class Bedienung1Thread(threading.Thread):
+# In diesem Thread werden die Hardwareeingaben von Führertischrechner 1 eingelesen.
     def __init__(self):
         threading.Thread.__init__(self)
         self.daemon = True
         self.start()
     def run(self):
-        global Bediendaten
-        while True:
-            Bediendaten1alt = Bediendaten.copy()
+        while not stop_threads:
             daten, addr = Ft1SSocket.recvfrom(1024)
-            # msg = "Message from Loksim {}".format(daten)
-            # msg_2 = "Adress from Loksim {}".format(addr[0])
-            # print(str(msg),"  ", str(msg_2))
-            # print("Anzahl der Zeichen des UDP-Pakets:\t",len(daten))
+            BedienLock.acquire()
+            Bediendatenalt = Bediendaten.copy()
             SchnittstelleFT.UDPBedienDatenAuswertenFT1(daten,Bediendaten)
-            Textausgabe.Textbedienanzeige(Bediendaten,Bediendaten1alt)
-            BedienungnachZusi(Bediendaten,Bediendaten1alt)
-            if stop_threads:
-                break
+            # Textausgabe.Textbedienanzeige(Bediendaten,Bediendatenalt)
+            BedienungnachZusi(Bediendaten,Bediendatenalt)
+            BedienLock.release()
 
 class Bedienung2Thread(threading.Thread):
+# In diesem Thread werden die Hardwareeingaben von Führertischrechner 2 eingelesen.
     def __init__(self):
         threading.Thread.__init__(self)
         self.daemon = True
         self.start()
     def run(self):
-        global Bediendaten
-        while True:
-            Bediendaten2alt = Bediendaten.copy()
+        while not stop_threads:
             daten, addr = Ft2SSocket.recvfrom(1024)
-            # msg = "Message from Loksim {}".format(daten)
-            # msg_2 = "Adress from Loksim {}".format(addr[0])
-            # print(str(msg),"  ", str(msg_2))
-            # print("Anzahl der Zeichen des UDP-Pakets:\t",len(daten))
+            BedienLock.acquire()
+            Bediendatenalt = Bediendaten.copy()
             SchnittstelleFT.UDPBedienDatenAuswertenFT2(daten,Bediendaten)
-            Textausgabe.Textbedienanzeige(Bediendaten,Bediendaten2alt)
-            BedienungnachZusi(Bediendaten,Bediendaten2alt)
-            if stop_threads:
-                break
+            # Textausgabe.Textbedienanzeige(Bediendaten,Bediendatenalt)
+            BedienungnachZusi(Bediendaten,Bediendatenalt)
+            BedienLock.release()
 
+class NachlaufThread(threading.Thread):
+# In diesem Thread wird eine Nachlaufsteuerung simuliert.
+# Bei einem Auf-Befehl wird Schaltwerksstufe mit einem Zeitintervall von 500 ms bis zum Maximum SWMAX erhöht.
+# Bei einem Ab-Befehl wird Schaltwerksstufe mit einem Zeitintervall von 500 ms bis zum Minimum SW0 erniedrigt.
+# Bei einem Schnell-Aus-Befehl wird Schaltwerksstufe sofort auf FSAUS gesetzt.
+    def __init__(self):
+        threading.Thread.__init__(self)
+        self.daemon = True
+        self.start()
+    def run(self):
+        Bediendaten["Sollfahrstufe"] = Kombischalterwerte["SW0"]
+        while not stop_threads:
+            if Kombischalterwerte["Nachlauf"]:
+                Nachlaufanfang = time.perf_counter()
+                Bediendatenalt = Bediendaten.copy()
+                if (Bediendaten["FS"] == 0):
+                    Bediendaten["Sollfahrstufe"] = Kombischalterwerte["FSAUS"]
+                elif (Bediendaten["FS"] == 1) and (Bediendaten["Sollfahrstufe"] > Kombischalterwerte["SW0"]):
+                    Bediendaten["Sollfahrstufe"] = Bediendaten["Sollfahrstufe"] - 1
+                elif (Bediendaten["FS"] == 3) and (Bediendaten["Sollfahrstufe"] < Kombischalterwerte["SWMAX"]):
+                    Bediendaten["Sollfahrstufe"] = Bediendaten["Sollfahrstufe"] + 1
+                if  Bediendaten["Sollfahrstufe"] != Bediendatenalt["Sollfahrstufe"]:
+                    BedienLock.acquire()
+                    BedienungnachZusi(Bediendaten,Bediendatenalt)
+                    BedienLock.release()
+                time.sleep(0.5 - (time.perf_counter() - Nachlaufanfang))
+            else:
+                time.sleep(5)
 
 # Beginn des Hauptprogrammes
 
@@ -647,6 +900,9 @@ Ft1ESocket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)  # Erstellen des U
 Ft1SSocket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)  # Erstellen des UDP Sende-Socket für den Führertischrechner 1
 Ft2ESocket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)  # Erstellen des UDP Empfangs-Socket für den Führertischrechner 2
 Ft2SSocket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)  # Erstellen des UDP Sende-Socket für den Führertischrechner 2
+QDmiSocket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)  # Erstellen des UDP Socket für QDmi
+QEBuLaSocket1 = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)  # Erstellen des UDP Socket für QEBuLa-Fahrplandaten
+QEBuLaSocket2 = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)  # Erstellen des UDP Socket für QEBuLa-Zugdaten
 
 try:
     ZusiSocket.connect((Zusi_IP, Zusi_Port))  # Binde Socket an die Netzwerkadresse
@@ -657,6 +913,7 @@ try:
     LZBSendenThread()
     Bedienung1Thread()
     Bedienung2Thread()
+    NachlaufThread()
     while True:
 # Empfang der Daten
         if Ebene == 0:
@@ -677,11 +934,43 @@ try:
             LetzterKnotenNeu = True
         elif PacketLaenge == 0xFFFFFFFF: # Kennzeichnung des Knoten-Endes
             if LetzterKnotenNeu & (nodeId[0] == 0x0002) & (nodeId[1] == 0x000A): # Schreiben der Daten
+                if ((Anzeigedaten["AnzModus"] & 0b0001100000000) == 512):
+                    Anzeigedaten["FSt"] = Bediendaten["Sollfahrstufe"] - Kombischalterwerte["SW0"]
+                else:
+                    Anzeigedaten["FSt"] = Anzeigedatentemp["FSt"]
                 Ft1ESocket.sendto(SchnittstelleFT.UDPAnzeigeDatenErzeugenFT1(Anzeigedaten),(Ft1_IP, Ft1E_Port))
                 Ft2ESocket.sendto(SchnittstelleFT.UDPAnzeigeDatenErzeugenFT2(Anzeigedaten),(Ft2_IP, Ft2E_Port))
+                AnzeigeLock.acquire()
                 SchnittstelleLZB.updateData(Anzeigedaten,LZBDaten)
+                AnzeigeLock.release()
+                # QEbulaZug = SchnittstelleQEBuLa.UDPZugDatenErzeugenQEBuLa(Anzeigedaten)
+                # QEBuLaSocket2.sendto(QEbulaZug,(QEBuLa_IP, QEBuLa_Port2))
                 # Textausgabe.Textanzeige(Anzeigedaten,Anzeigedatenalt)
-                Anzeigedatenalt = Anzeigedaten.copy()
+                # Anzeigedatenalt = Anzeigedaten.copy()
+            elif (Ebene == 2) & (nodeId[2] == 0x008E) & (nodeId[3] == 0x0001):
+                Steuerwagen = (Zugverbandsdaten[0]["Lokstatus"] == 2)
+                Kombischalterwerte = Zusi3Fahrzeugdaten.Fahrzeugdaten(Zugverbandsdaten,Anzeigedaten)
+                Zugverbandsdatenvollständig = True
+                Anzeigedaten["VmaxTfz"] = Zugverbandsdaten[0]["vMax"]
+                Anzeigedaten["NVR"] = Zugverbandsdaten[0]["NVR"]
+                for i in range(len(Zugverbandsdaten)):
+                    print("------------------------------")
+                    print("Fahrzeug ", i)
+                    print("Fahrzeugdateiname: ", Zugverbandsdaten[i]["Fahrzeugdateiname"])
+                    if len(Zugverbandsdaten[i]["Beschreibung"]) > 0: print("Fahrzeugbeschreibung: ", Zugverbandsdaten[i]["Beschreibung"])
+                    print("Fahrzeughöchstgeschwindigkeit: ", Zugverbandsdaten[i]["vMax"], " km/h")
+                    print("Baureihe: ", Zugverbandsdaten[i]["Baureihenangabe"])
+                    # if Zugverbandsdaten[i]["Traktionsmodus"] == 0: print("Traktionsmodus: Eigener Tf")
+                    # elif Zugverbandsdaten[i]["Traktionsmodus"] == 1: print("Traktionsmodus: Mehrfachtraktion")
+                    # elif Zugverbandsdaten[i]["Traktionsmodus"] == 2: print("Traktionsmodus: Kalt")
+                    if len(Zugverbandsdaten[i]["NVR"]) > 0: print("NVR-Nummer: ", Zugverbandsdaten[i]["NVR"])
+                    if Zugverbandsdaten[i]["Achszahl"] > 0: print("Anzahl Achsen: ", Zugverbandsdaten[i]["Achszahl"])
+                    if Zugverbandsdaten[i]["Lokstatus"] == 0: print("Lokstatus unbekannt")
+                    elif Zugverbandsdaten[i]["Lokstatus"] == 1: print("Fahrzeug ist eine Lokomotive")
+                    elif Zugverbandsdaten[i]["Lokstatus"] == 2: print("Fahrzeug ist keine Lokomotive")
+                    if len(Zugverbandsdaten[i]["Int_Fzgnr"]) > 0: print("Interne Fahrzeugnummer: ", Zugverbandsdaten[i]["Int_Fzgnr"])
+                print(Kombischalterwerte)
+                Textausgabe.Anzeigemodusanzeige(Anzeigedaten)
             elif Ebene == 1:
                if not Verbindungsergebnis:
                    ZusiSocket.send(HELLO)
@@ -728,33 +1017,47 @@ try:
                 elif nodeId[2] == 0x0004: # Druck Hauptluftbehälter
                     Anzeigedaten["DruckHB"] = ZusiSinglezuFloat(Speicher)
                 elif nodeId[2] == 0x0009: # Zugkraft gesamt
-                    Anzeigedaten["Fzb"] = ZusiSinglezuFloat(Speicher) * 0.001
+                    if not Steuerwagen:
+                        Anzeigedaten["Fzb"] = ZusiSinglezuFloat(Speicher) * 0.001
                 elif nodeId[2] == 0x000A: # Zugkraft pro Achse
-                    Anzeigedaten["Fzba"] = ZusiSinglezuFloat(Speicher) * 0.001
+                    if not Steuerwagen:
+                        Anzeigedaten["Fzba"] = ZusiSinglezuFloat(Speicher) * 0.001
+                elif nodeId[2] == 0x000B: # Zugkraftsoll gesamt
+                    if not Steuerwagen:
+                        Anzeigedaten["Fzbsoll"] = ZusiSinglezuFloat(Speicher) * 0.001
+                elif nodeId[2] == 0x000C: # Zugkraftsoll pro Achse
+                    if not Steuerwagen:
+                        Anzeigedaten["Fzbasoll"] = ZusiSinglezuFloat(Speicher) * 0.001
                 elif nodeId[2] == 0x000D: # Oberstrom
-                    Anzeigedaten["Iol"] = ZusiSinglezuFloat(Speicher)
+                    if not Steuerwagen:
+                        Anzeigedaten["Iol"] = ZusiSinglezuFloat(Speicher)
                 elif nodeId[2] == 0x000E: # Fahrleitungsspannung
-                    Anzeigedaten["Uol"] = ZusiSinglezuFloat(Speicher)
+                    if not Steuerwagen:
+                        Anzeigedaten["Uol"] = ZusiSinglezuFloat(Speicher)
                 elif nodeId[2] == 0x000F: # Motordrehzahl
-                    Anzeigedaten["Nmot"] = ZusiSinglezuFloat(Speicher)
+                    if not Steuerwagen:
+                        Anzeigedaten["Nmot"] = ZusiSinglezuFloat(Speicher)
                 elif nodeId[2] == 0x0013: # Hauptschalter
-                    Anzeigedaten["LMHS"] = ZusiSinglezuBool(Speicher)
+                    if not Steuerwagen:
+                        Anzeigedaten["LMHS"] = ZusiSinglezuBool(Speicher)
                 elif nodeId[2] == 0x0015: # Fahrstufe
-                    Anzeigedaten["FSt"] = ZusiSinglezuInt(Speicher)
+                    if not Steuerwagen:
+                        Anzeigedatentemp["FSt"] = ZusiSinglezuInt(Speicher)
                 elif nodeId[2] == 0x0017: # AFB-Sollgeschwindigkeit
                     Anzeigedaten["AFBVsoll"] = ZusiSinglezuFloat(Speicher) * 3.6
                 elif nodeId[2] == 0x0019: # Zurückgelegter Gesamtweg
                     Anzeigedaten["Simkm"] = ZusiSinglezuInt(Speicher)
                 elif nodeId[2] == 0x001A: # LM Getriebe
-                    Anzeigedaten["LMGetriebe"] = ZusiSinglezuBool(Speicher)
+                    if not Steuerwagen:
+                        Anzeigedaten["LMGetriebe"] = ZusiSinglezuBool(Speicher)
                 elif nodeId[2] == 0x001B: # LM Schleudern
-                    Anzeigedaten["LMSchleudern"] = ZusiSinglezuBool(Speicher)
+                    if not Steuerwagen:
+                        Anzeigedaten["LMSchleudern"] = ZusiSinglezuBool(Speicher)
                 elif nodeId[2] == 0x001C: # LM Gleiten
-                    Anzeigedaten["LMGleiten"] = ZusiSinglezuBool(Speicher)
+                    if not Steuerwagen:
+                        Anzeigedaten["LMGleiten"] = ZusiSinglezuBool(Speicher)
                 elif nodeId[2] == 0x0020: # LM Hochabbremsung
                     Anzeigedaten["LMHAB"] = ZusiSinglezuBool(Speicher)
-                elif nodeId[2] == 0x0021: # LM Schnellbremsung
-                    Anzeigedaten["LMS"] = ZusiSinglezuBool(Speicher)
                 elif nodeId[2] == 0x0022: # Status Notbremsung
                     if nodeId[3] == 0x0001: # Bauart Notbremssystem
                         print(ZusiStringtoString(Speicher,PacketLaenge-2))
@@ -767,12 +1070,22 @@ try:
                 elif nodeId[2] == 0x0055: # Stromabnehmer
                     # print("Stromabnehmerstellung: ", ZusiSinglezuInt(Speicher))
                     Anzeigedaten["LMSA"] = ZusiSinglezuInt(Speicher)
+                elif nodeId[2] == 0x0058: # LM Getriebe
+                    if Steuerwagen:
+                        Anzeigedaten["LMGetriebe"] = ZusiSinglezuBool(Speicher)
+                elif nodeId[2] == 0x0059: # LM Schleudern
+                    if Steuerwagen:
+                        Anzeigedaten["LMSchleudern"] = ZusiSinglezuBool(Speicher)
+                elif nodeId[2] == 0x0090: # LM Gleiten
+                    if Steuerwagen:
+                        Anzeigedaten["LMGleiten"] = ZusiSinglezuBool(Speicher)
                 elif nodeId[2] == 0x005E: # Druck Zeitbehälter
                     Anzeigedaten["DruckZ"] = ZusiSinglezuFloat(Speicher)
                 elif nodeId[2] == 0x0061: # Kilometrierung (Zugspitze)
                     Anzeigedaten["Streckenkm"] = ZusiSinglezuInt1000(Speicher)
                 elif nodeId[2] == 0x0063: # Motorspannung
-                    Anzeigedaten["Umot"] = ZusiSinglezuInt(Speicher)
+                    if not Steuerwagen:
+                        Anzeigedaten["Umot"] = ZusiSinglezuInt(Speicher)
                 elif nodeId[2] == 0x0064: # Status Sifa
                     # if nodeId[3] == 0x0001: # Bauart Sifasystem
                         # print(ZusiStringtoString(Speicher,PacketLaenge-2))
@@ -818,7 +1131,9 @@ try:
                     elif nodeId[3] == 0x0003: # System aus der Indusi-Familie - Betriebsdaten
                         # if nodeId[4] == 0x0002: # Zustand Zugbeeinflussung
                             # print("Zustand Zugbeeinflussung ",ZusiSinglezuInt(Speicher))
-                        if nodeId[4] == 0x0006: # Status Melder Zugart U
+                        if nodeId[4] == 0x0005: # Status Melder 1000 Hz
+                            Anzeigedatentemp["LM1000Hz-bool"] = bool(ZusiBytezuLM(Speicher))
+                        elif nodeId[4] == 0x0006: # Status Melder Zugart U
                             if Anzeigedaten["LZBSystem"] == 1:
                                 Anzeigedaten["LM55"] = ZusiBytezuLM(Speicher)
                         elif nodeId[4] == 0x0007: # Status Melder Zugart M
@@ -827,17 +1142,35 @@ try:
                         elif nodeId[4] == 0x0008: # Status Melder Zugart O
                             if Anzeigedaten["LZBSystem"] == 1:
                                 Anzeigedaten["LM85"] = ZusiBytezuLM(Speicher)
-                        elif nodeId[4] == 0x0009: # Status Indusi-Hupe
-# Da die Indusi-Hipe von Zusi nicht richtig angesteuert wird,
+                        # elif nodeId[4] == 0x0009: # Status Indusi-Hupe
+# Da die Indusi-Hupe von Zusi nicht richtig angesteuert wird,
 # geht das Signal versuchsweise auf den LM Zugsammelschiene
                         #     if int(Speicher[0]) == 0:
                                 # Anzeigedaten["HupePZB"] = 0
                             # else:
                                 # Anzeigedaten["HupePZB"] = 3
-                            if int(Speicher[0]) == 0:
-                                Anzeigedaten["LMZS"] = False
-                            else:
-                                Anzeigedaten["LMZS"] = True
+                            # if int(Speicher[0]) == 0:
+                            #     Anzeigedaten["LMZS"] = False
+                            # else:
+                            #     Anzeigedaten["LMZS"] = True
+                        elif nodeId[4] == 0x0017: # Status Melder H
+                            Anzeigedatentemp["LMH-bool"] = bool(ZusiBytezuLM(Speicher))
+                        elif nodeId[4] == 0x0018: # Status Melder E40
+                            Anzeigedatentemp["LME40-bool"] = bool(ZusiBytezuLM(Speicher))
+                        elif nodeId[4] == 0x0019: # Status Melder Ende
+                            Anzeigedatentemp["LMEnde-bool"] = bool(ZusiBytezuLM(Speicher))
+                        elif nodeId[4] == 0x001A: # Status Melder B
+                            Anzeigedatentemp["LMB-bool"] = bool(ZusiBytezuLM(Speicher))
+                        elif nodeId[4] == 0x001B: # Status Melder Ü
+                            Anzeigedatentemp["LMUe-bool"] = bool(ZusiBytezuLM(Speicher))
+                        elif nodeId[4] == 0x001C: # Status Melder G
+                            Anzeigedatentemp["LMG-bool"] = bool(ZusiBytezuLM(Speicher))
+                        elif nodeId[4] == 0x001D: # Status Melder EL
+                            Anzeigedatentemp["LMEL-bool"] = bool(ZusiBytezuLM(Speicher))
+                        elif nodeId[4] == 0x001E: # Status Melder V40
+                            Anzeigedatentemp["LMV40-bool"] = bool(ZusiBytezuLM(Speicher))
+                        elif nodeId[4] == 0x001F: # Status Melder S
+                            Anzeigedatentemp["LMS-bool"] = bool(ZusiBytezuLM(Speicher))
                         elif nodeId[4] == 0x0021: # Sollgeschwindigkeit in m/s
                             Anzeigedaten["LZBVsoll"] = ZusiSinglezuFloat(Speicher) * 3.6
                             if (Anzeigedaten["LZBVsoll"] >= 0.0):
@@ -850,7 +1183,7 @@ try:
 	                            Anzeigedaten["MFADVZ"] = False
                             else:
                                 Anzeigedaten["MFADVZ"] = True
-                        elif nodeId[4] == 0x0023: # Zielweg in m (Wert<0 → dunkel)
+                        elif nodeId[4] == 0x0023: # Zielweg in m (Wert < 0 → dunkel)
                             Anzeigedaten["LZBSziel"] = ZusiSinglezuFloat(Speicher)
                             if (Anzeigedaten["LZBSziel"] >= 0.0):
 	                            Anzeigedaten["MFADaZ"] = False
@@ -859,11 +1192,11 @@ try:
 	                            Anzeigedaten["MFADaZ"] = True
 	                            Anzeigedaten["MFADdZ"] = True
                         elif nodeId[4] == 0x0024: # Status Melder G
-                            Anzeigedaten["LMG"] = ZusiBytezuLM(Speicher)
+                            Anzeigedatentemp["LMG-int"] = ZusiBytezuLM(Speicher)
                         elif nodeId[4] == 0x0027: # Zugdatenanzeige im MFA aktiv
                             Anzeigedaten["ZDK"] = int(Speicher[0])
                         elif nodeId[4] == 0x002F: # Status Melder 1000 Hz
-                            Anzeigedaten["LM1000Hz"] = ZusiBytezuLM(Speicher)
+                            Anzeigedatentemp["LM1000Hz-int"] = ZusiBytezuLM(Speicher)
                         elif nodeId[4] == 0x0030: # Status Melder Zugart O
                             if Anzeigedaten["LZBSystem"] == 7:
                                 Anzeigedaten["LM85"] = ZusiBytezuLM(Speicher)
@@ -876,23 +1209,23 @@ try:
                         elif nodeId[4] == 0x0033: # Status Melder 500 Hz
                             Anzeigedaten["LM500Hz"] = ZusiBytezuLM(Speicher)
                         elif nodeId[4] == 0x0034: # Status Melder Befehl 40
-                            Anzeigedaten["LMB40"] = ZusiBytezuLM(Speicher)
+                            Anzeigedatentemp["LMB40-int"] = ZusiBytezuLM(Speicher)
                         elif nodeId[4] == 0x0038: # Status Melder H
-                            Anzeigedaten["LMH"] = ZusiBytezuLM(Speicher)
+                            Anzeigedatentemp["LMH-int"] = ZusiBytezuLM(Speicher)
                         elif nodeId[4] == 0x0039: # Status Melder E40
-                            Anzeigedaten["LME40"] = ZusiBytezuLM(Speicher)
+                            Anzeigedatentemp["LME40-int"] = ZusiBytezuLM(Speicher)
                         elif nodeId[4] == 0x003A: # Status Melder Ende
-                            Anzeigedaten["LMEnde"] = ZusiBytezuLM(Speicher)
+                            Anzeigedatentemp["LMEnde-int"] = ZusiBytezuLM(Speicher)
                         elif nodeId[4] == 0x003B: # Status Melder B
-                            Anzeigedaten["LMB"] = ZusiBytezuLM(Speicher)
+                            Anzeigedatentemp["LMB-int"] = ZusiBytezuLM(Speicher)
                         elif nodeId[4] == 0x003C: # Status Melder Ü
-                            Anzeigedaten["LMUe"] = ZusiBytezuLM(Speicher)
+                            Anzeigedatentemp["LMUe-int"] = ZusiBytezuLM(Speicher)
                         elif nodeId[4] == 0x003D: # Status Melder EL
-                            Anzeigedaten["LMEL"] = ZusiBytezuLM(Speicher)
+                            Anzeigedatentemp["LMEL-int"] = ZusiBytezuLM(Speicher)
                         elif nodeId[4] == 0x003E: # Status Melder V40
-                            Anzeigedaten["LMV40"] = ZusiBytezuLM(Speicher)
+                            Anzeigedatentemp["LMV40-int"] = ZusiBytezuLM(Speicher)
                         elif nodeId[4] == 0x003F: # Status Melder S
-                            Anzeigedaten["LMS"] = ZusiBytezuLM(Speicher)
+                            Anzeigedatentemp["LMS-int"] = ZusiBytezuLM(Speicher)
                     elif nodeId[3] == 0x0007: # System aus der ZUB-Familie - Betriebsdaten
                         if nodeId[4] == 0x0001: # Status Melder GNT
                             Anzeigedaten["LMGNT"] = ZusiBytezuLM(Speicher)
@@ -902,68 +1235,145 @@ try:
                             Anzeigedaten["LMGNTG"] = ZusiBytezuLM(Speicher)
                         elif nodeId[4] == 0x0004: # Status Melder GNT S
                             Anzeigedaten["LMGNTS"] = ZusiBytezuLM(Speicher)
+                    Anzeigedaten["LM1000Hz"] = ZusiLMVergleich(Anzeigedatentemp["LM1000Hz-bool"], Anzeigedatentemp["LM1000Hz-int"], "LM1000Hz")
+                    Anzeigedaten["LMH"]      = ZusiLMVergleich(Anzeigedatentemp["LMH-bool"],      Anzeigedatentemp["LMH-int"],      "LMH")
+                    Anzeigedaten["LME40"]    = ZusiLMVergleich(Anzeigedatentemp["LME40-bool"],    Anzeigedatentemp["LME40-int"],    "LME40")
+                    Anzeigedaten["LMEnde"]   = ZusiLMVergleich(Anzeigedatentemp["LMEnde-bool"],   Anzeigedatentemp["LMEnde-int"],   "LMEnde")
+                    Anzeigedaten["LMB"]      = ZusiLMVergleich(Anzeigedatentemp["LMB-bool"],      Anzeigedatentemp["LMB-int"],      "LMB")
+                    Anzeigedaten["LMUe"]     = ZusiLMVergleich(Anzeigedatentemp["LMUe-bool"],     Anzeigedatentemp["LMUe-int"],     "LMUe")
+                    Anzeigedaten["LMG"]      = ZusiLMVergleich(Anzeigedatentemp["LMG-bool"],      Anzeigedatentemp["LMG-int"],      "LMG")
+                    Anzeigedaten["LMEL"]     = ZusiLMVergleich(Anzeigedatentemp["LMEL-bool"],     Anzeigedatentemp["LMEL-int"],     "LMEL")
+                    Anzeigedaten["LMV40"]    = ZusiLMVergleich(Anzeigedatentemp["LMV40-bool"],    Anzeigedatentemp["LMV40-int"],    "LMV40")
+                    Anzeigedaten["LMS"]      = ZusiLMVergleich(Anzeigedatentemp["LMS-bool"],      Anzeigedatentemp["LMS-int"],      "LMS")
                 elif nodeId[2] == 0x0066: # Status Türsystem
-                    # if nodeId[3] == 0x0001: # Bezeichnung des Systems
-                        # print(ZusiStringtoString(Speicher,PacketLaenge-2))
+                    if nodeId[3] == 0x0001: # Bezeichnung des Systems
+                        BauartTuersystem = ZusiStringtoString(Speicher,PacketLaenge-2)
+                        if ("SAT" in BauartTuersystem):
+                            Anzeigedaten["TuerSystem"] = 2
+                        elif ("TB0" in BauartTuersystem):
+                            Anzeigedaten["TuerSystem"] = 3
+                        elif ("TAV" in BauartTuersystem):
+                            Anzeigedaten["TuerSystem"] = 4
+                        elif ("SST" in BauartTuersystem):
+                            Anzeigedaten["TuerSystem"] = 5
+                        else:
+                            Anzeigedaten["TuerSystem"] = 0
+                        print(BauartTuersystem, Anzeigedaten["TuerSystem"])
                     if nodeId[3] == 0x000D: # Status Türmelder links+rechts
-                        Anzeigedaten["LMTuer"] = ZusiBytezuLM(Speicher)
+                        # if Anzeigedaten["TuerSystem"] == 2:
+                       Anzeigedaten["LMTuer"] = ZusiBytezuLMinvertiert(Speicher)
+                        # else:
+                           # Anzeigedaten["LMTuer"] = ZusiBytezuLM(Speicher)
+                elif nodeId[2] == 0x007C: # Zugkraft gesamt
+                    if Steuerwagen:
+                        Anzeigedaten["Fzb"] = ZusiSinglezuFloat(Speicher) * 0.001
+                elif nodeId[2] == 0x007D: # Zugkraft pro Achse
+                    if Steuerwagen:
+                        Anzeigedaten["Fzba"] = ZusiSinglezuFloat(Speicher) * 0.001
+                elif nodeId[2] == 0x007E: # Zugkraftsoll gesamt
+                    if Steuerwagen:
+                        Anzeigedaten["Fzbsoll"] = ZusiSinglezuFloat(Speicher) * 0.001
+                elif nodeId[2] == 0x007F: # Zugkraftsoll pro Achse
+                    if Steuerwagen:
+                        Anzeigedaten["Fzbasoll"] = ZusiSinglezuFloat(Speicher) * 0.001
+                elif nodeId[2] == 0x0080: # Oberstrom
+                    if Steuerwagen:
+                        Anzeigedaten["Iol"] = ZusiSinglezuFloat(Speicher)
+                elif nodeId[2] == 0x0081: # Fahrleitungsspannung
+                    if Steuerwagen:
+                        Anzeigedaten["Uol"] = ZusiSinglezuFloat(Speicher)
+                elif nodeId[2] == 0x0082: # Motordrehzahl
+                    if Steuerwagen:
+                        Anzeigedaten["Nmot"] = ZusiSinglezuFloat(Speicher)
+                elif nodeId[2] == 0x0083: # Hauptschalter
+                    if Steuerwagen:
+                        Anzeigedaten["LMHS"] = ZusiSinglezuBool(Speicher)
+                elif nodeId[2] == 0x0085: # Fahrstufe
+                    if Steuerwagen:
+                        Anzeigedatentemp["FSt"] = ZusiSinglezuInt(Speicher)
+                elif nodeId[2] == 0x008A: # Motorspannung
+                    if Steuerwagen:
+                        Anzeigedaten["Umot"] = ZusiSinglezuInt(Speicher)
                 elif nodeId[2] == 0x008E:   # Status Zug
                     if nodeId[3] == 0x0001: # Fahrzeug
                         if nodeId[4] == 0x0001: # Fahrzeugdateiname
-                            print("Fahrzeugdateiname: ", ZusiStringtoString(Speicher,PacketLaenge-2))
-                        # elif nodeId[4] == 0x0002: # Beschreibung
-                            # print("Beschreibung: ", ZusiStringtoString(Speicher,PacketLaenge-2))
-                        # elif nodeId[4] == 0x0004: # Vorhandenes Zugbeeinflussungssystem
-                        #     print("Vorhandenes Zugbeeinflussungssystem: ", ZusiStringtoString(Speicher,PacketLaenge-2))
-                        # elif nodeId[4] == 0x0005: # Fahrzeughöchstgeschwindigkeit
-                            # print("Fahrzeughöchstgeschwindigkeit: ", round(ZusiSinglezuFloat(Speicher) * 3.6), " km/h")
+                            if Zugverbandsdatenvollständig:
+                                Anzeigedaten = AnzeigedatenGrundstellung.copy()
+                                Zugverbandsdaten = []
+                                Zugverbandsdatenvollständig = False
+                            ZugverbandsdatenFzg = ZugverbandsdatenStruktur.copy()
+                            Zugverbandsdaten.append(ZugverbandsdatenFzg)
+                            Zugverbandsdaten[len(Zugverbandsdaten) - 1]["Fahrzeugdateiname"] = ZusiStringtoString(Speicher,PacketLaenge-2)
+                        elif nodeId[4] == 0x0002: # Fahrzeugbeschreibung
+                            Zugverbandsdaten[len(Zugverbandsdaten) - 1]["Beschreibung"] = ZusiStringtoString(Speicher,PacketLaenge-2)
+                        elif nodeId[4] == 0x0005: # Fahrzeughöchstgeschwindigkeit
+                            Zugverbandsdaten[len(Zugverbandsdaten) - 1]["vMax"] = round(ZusiSinglezuFloat(Speicher) * 3.6)
                         elif nodeId[4] == 0x0006: # Baureihenangabe
-                            print("Baureihe: ", ZusiStringtoString(Speicher,PacketLaenge-2))
+                            Zugverbandsdaten[len(Zugverbandsdaten) - 1]["Baureihenangabe"] = ZusiStringtoString(Speicher,PacketLaenge-2)
+                        elif nodeId[4] == 0x0008: # Traktionsmodus
+                            Zugverbandsdaten[len(Zugverbandsdaten) - 1]["Traktionsmodus"] = Speicher[0]
                         elif nodeId[4] == 0x000B: # NVR-Nummer
-                            print("NVR-Nummer: ", ZusiStringtoString(Speicher,PacketLaenge-2))
-                        # elif nodeId[4] == 0x001C: # Bezeichnung der Bremsbauart
-                        #     print("Bezeichnung der Bremsbauart: ", ZusiStringtoString(Speicher,PacketLaenge-2))
+                            Zugverbandsdaten[len(Zugverbandsdaten) - 1]["NVR"] = ZusiStringtoString(Speicher,PacketLaenge-2)
+                        elif nodeId[4] == 0x0018: # Anzahl Achsen
+                            Zugverbandsdaten[len(Zugverbandsdaten) - 1]["Achszahl"] = Speicher[0]
+                        elif nodeId[4] == 0x0020: # Lokstatus
+                            Zugverbandsdaten[len(Zugverbandsdaten) - 1]["Lokstatus"] = Speicher[0]
                         elif nodeId[4] == 0x0021: # Interne Fahrzeugnummer
-                            print("Interne Fahrzeugnummer: ", ZusiStringtoString(Speicher,PacketLaenge-2))
-            elif (nodeId[0] == 0x0002) & (nodeId[1] == 0x000B): # DATA_OPERATION
-                # if nodeId[2] == 0x0001:   # Betätigungsvorgang
-                #     if nodeId[3] == 0x0001: # Tastaturzuordnung
-                #         print("Betätigungsvorgang Tastaturzuordnung: ", hex(ZusiWordzuInt(Speicher)))
-                #     elif nodeId[3] == 0x0002: # Tastaturkommando
-                #         print("Betätigungsvorgang Tastaturkommando: ", hex(ZusiWordzuInt(Speicher)))
-                #     elif nodeId[3] == 0x0003: # Tastaturaktion
-                #         print("Betätigungsvorgang Tastaturaktion: ", hex(ZusiWordzuInt(Speicher)))
-                #     elif nodeId[3] == 0x0004: # Schalterposition
-                #         print("Betätigungsvorgang Schalterposition: ", hex(ZusiWordzuInt(Speicher)))
-                #     elif nodeId[3] == 0x0005: # Spezialparameter
-                #         print("Betätigungsvorgang Spezialparameter: ", ZusiSinglezuFloat(Speicher))
-                if nodeId[2] == 0x0002:   # Kombischalter Hebelpositionen
-                    if nodeId[3] == 0x0001: # Name des Kombischalters
-                        print("Name des Kombischalters: ", ZusiStringtoString(Speicher,PacketLaenge-2))
-                    elif nodeId[3] == 0x0002: # 
-                        if nodeId[4] == 0x0001: # Kombischalterfunktion
-                            print("Kombischalterfunktion: ", hex(ZusiWordzuInt(Speicher)))
-                        elif nodeId[4] == 0x0002: # Beschreibung
-                            print("Kombischalter Parameter: ", ZusiSinglezuFloat(Speicher))
-                    elif nodeId[3] == 0x0003: # 
-                        print("Kombischalter Aktuelle Raste : ", ZusiSmallIntzuInt(Speicher))
-                    elif nodeId[3] == 0x0004: # 
-                        print("Kombischalter Mittelstellung : ", ZusiSmallIntzuInt(Speicher))
-                    elif nodeId[3] == 0x0005: # 
-                        print("Kombischalter Maximale Rastennummer : ", ZusiSinglezuFloat(Speicher))
+                            Zugverbandsdaten[len(Zugverbandsdaten) - 1]["Int_Fzgnr"] = ZusiStringtoString(Speicher,PacketLaenge-2)
+            elif (nodeId[0] == 0x0002): # DATA_OPERATION
+                if nodeId[1] == 0x000B:   # Führerstandsbedienung
+                    if nodeId[2] == 0x0001: # Betätigungsvorgang
+                        if nodeId[3] == 0x0001: # Tastaturzuordnung 
+                            print("Tastaturzuordnung: ", ZusiWordzuInt(Speicher))
+                        if nodeId[3] == 0x0002: # Tastaturkommando  
+                            print("Tastaturkommando:  ", ZusiWordzuInt(Speicher))
+                        if nodeId[3] == 0x0003: # Tastaturaktion  
+                            print("Tastaturaktion:    ", ZusiWordzuInt(Speicher))
+                        if nodeId[3] == 0x0004: # Schalterposition 
+                            print("Schalterposition:  ", ZusiSmallIntzuInt(Speicher))
+                    if nodeId[2] == 0x0002: # Kombischalter Hebelpositionen
+                        if nodeId[3] == 0x0001: # Name des Kombischalters
+                            print(ZusiStringtoString(Speicher,PacketLaenge-2))
+                        elif nodeId[3] == 0x0001: # Name des Kombischalters
+                            if nodeId[4] == 0x0001: # Kombischalterfunktion
+                                print("Kombischalterfunktion: ", ZusiWordzuInt(Speicher))
+                            if nodeId[4] == 0x0003: # Aktuelle Raste
+                                print("Aktuelle Raste:        ", ZusiSmallIntzuInt(Speicher))
             elif (nodeId[0] == 0x0002) & (nodeId[1] == 0x000C): # DATA_FTD
                 if nodeId[2] == 0x0001:   # Aktuelle Zugdatei, Dateiname relativ zum Zusi-Verzeichnis
                     print("Aktuelle Zugdatei: ", ZusiStringtoString(Speicher,PacketLaenge-2))
                 elif nodeId[2] == 0x0002:   # Aktuelle Zugnummer
-                    print("Aktuelle Zugnummer: ", ZusiStringtoString(Speicher,PacketLaenge-2))
+                    Anzeigedaten["Zugnr"] = ZusiStringtoInt(Speicher,PacketLaenge-2)
+                    # Zugverbandsdaten = []
+                    Anzeigedaten = AnzeigedatenGrundstellung
+                    print("Aktuelle Zugnummer: ", Anzeigedaten["Zugnr"])
                 elif nodeId[2] == 0x0004:   # Buchfahrplanrohdatei
                     EBuLaString = ZusiStringtoString(Speicher,PacketLaenge-2)
-                    print("Fahrplan:", EBuLaString)
+                    # print("Fahrplan:", EBuLaString)
+                    # get_fahrplan(EBuLaString)
+                    # print("Fahrplan:")
+                    # for i in range(len(EBuLaPlan)):
+                    #     print(EBuLaPlan[i])
+                    #     print("")
+                    # QEbulaPlan = SchnittstelleQEBuLa.UDPFahrplanDatenErzeugenQEBuLa(EBuLaPlan)
+                    # QEBuLaSocket1.sendto(QEbulaPlan,(QEBuLa_IP, QEBuLa_Port1))
+                    with open("EBuLa.xml", "w", encoding="utf-8-sig") as EBuLaDatei:
+                        EBuLaDatei.write(EBuLaString)
+                elif nodeId[2] == 0x0005:   # 1: Zug neu übernommen
+                    print("Zug neu übernommen: ", Speicher[0])
+                    if Speicher[0] == 1:
+                        Zugverbandsdaten = []
+                        Anzeigedaten = AnzeigedatenGrundstellung.copy()
 
 finally:
+    Anzeigedaten = AnzeigedatenGrundstellung
+    Ft1ESocket.sendto(SchnittstelleFT.UDPAnzeigeDatenErzeugenFT1(Anzeigedaten),(Ft1_IP, Ft1E_Port))
+    Ft2ESocket.sendto(SchnittstelleFT.UDPAnzeigeDatenErzeugenFT2(Anzeigedaten),(Ft2_IP, Ft2E_Port))
+    SchnittstelleLZB.updateData(Anzeigedaten,LZBDaten)
     ZusiSocket.close()
     Ft1ESocket.close()
     Ft1SSocket.close()
     Ft2ESocket.close()
     Ft2SSocket.close()
+    QDmiSocket.close()
     stop_threads = True 

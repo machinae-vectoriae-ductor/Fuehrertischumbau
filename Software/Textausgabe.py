@@ -24,7 +24,7 @@ TH Köln, hereby disclaims all copyright interest in the software 'Textausgabe.p
 Loksim3D, Zusi 2 and Zusi 3).
 
 Wolfgang Evers
-Versionsdatum 25.03.2022
+Versionsdatum 14.10.2022
 
 """
 
@@ -385,6 +385,57 @@ def Textanzeige(Textanzeigedaten,Textanzeigedatenalt):
         print("\tEindeutige Fahrzeugnummer des Tfz " + str(Textanzeigedaten["NVR"]))
     return None
 
+def Anzeigemodusanzeige(Textanzeigedaten):
+    print("\tAnzeigemodus: ", Textanzeigedaten["AnzModus"])
+    if Textanzeigedaten["AnzModus"] & 0b0000000000001:
+        print("\tInnerer Zugkraftanzeiger zeigt Zugkraft pro Achse")
+    else:
+        print("\tInnerer Zugkraftanzeiger ohne Funktion")
+    if Textanzeigedaten["AnzModus"] & 0b0000000000110 == 2:
+        print("\tInnerer Bremskraftanzeiger zeigt Bremskraft des Triebfahrzeugs")
+    elif Textanzeigedaten["AnzModus"] & 0b0000000000110 == 4:
+        print("\tInnerer Bremskraftanzeiger zeigt Bremskraft des Drehgestells 1")
+    else:
+        print("\tInnerer Bremskraftanzeiger ohne Funktion")
+    if (Textanzeigedaten["AnzModus"] & 0b0000000011000 == 8):
+        print("\tÄußerer Zugkraftanzeiger zeigt Schleudern")
+    elif (Textanzeigedaten["AnzModus"] & 0b0000000011000 == 16):
+        print("\tÄußerer Zugkraftanzeiger zeigt Sollzugkraft pro Achse")
+    elif (Textanzeigedaten["AnzModus"] & 0b0000000011000 == 24):
+        print("\tÄußerer Zugkraftanzeiger zeigt Zugkraft zweite Lok pro Achse")
+    else:
+        print("\tÄußerer Zugkraftanzeiger ohne Funktion")
+    if (Textanzeigedaten["AnzModus"] & 0b0000001100000 == 32):
+        print("\tÄußerer Bremskraftanzeiger zeigt Gleiten")
+    elif (Textanzeigedaten["AnzModus"] & 0b0000001100000 == 64):
+        print("\tÄußerer Bremskraftanzeiger zeigt Sollbremskraft des Triebfahrzeugs")
+    elif (Textanzeigedaten["AnzModus"] & 0b0000001100000 == 96):
+        print("\tÄußerer Bremskraftanzeiger zeigt Bremskraft der zweiten Lok")
+    elif (Textanzeigedaten["AnzModus"] & 0b0000001100000 == 128):
+        print("\tÄußerer Bremskraftanzeiger zeigt Bremskraft des Drehgestells 2")
+    elif (Textanzeigedaten["AnzModus"] & 0b0000001100000 == 160):
+        print("\tÄußerer Bremskraftanzeiger zeigt Bremskraft eines Drehgestells der zweiten Lok")
+    else:
+        print("\tÄußerer Bremskraftanzeiger ohne Funktion")
+    if Textanzeigedaten["AnzModus"] & 0b0001100000000 == 256:
+        print("\tFahrstufenanzeige")
+    elif Textanzeigedaten["AnzModus"] & 0b0001100000000 == 512:
+        print("\tSollfahrstufenanzeige")
+    else:
+        print("\tkeine Fahrstufenanzeige")
+    if Textanzeigedaten["AnzModus"] & 0b0010000000000:
+        print("\tFahrdrahtspannung, sonst Motorspannung bei Fahrstufe > 0")
+    else:
+        print("\tFahrdrahtspannung")
+    if Textanzeigedaten["AnzModus"] & 0b0100000000000:
+        print("\tDieselmotordrehzahl")
+    else:
+        print("\tOberstrom")
+    if Textanzeigedaten["AnzModus"] & 0b1000000000000:
+        print("\tManometer zeigt 5 bar minus Zeitbehälterdruck")
+    else:
+        print("\tManometer zeigt Zeitbehälterdruck")
+    
 def Textbedienanzeige(Textbediendaten,Textbediendatenalt):
     if Textbediendaten["FS"] != Textbediendatenalt["FS"]:
         if Textbediendaten["FS"] == 0:
@@ -403,6 +454,9 @@ def Textbedienanzeige(Textbediendaten,Textbediendatenalt):
 
     if Textbediendaten["AFSZ"] != Textbediendatenalt["AFSZ"]:
         print("\tFahrschalter Zugkraftvorgabe " + str(round(Textbediendaten["AFSZ"],1)) + " %")
+
+    if Textbediendaten["Sollfahrstufe"] != Textbediendatenalt["Sollfahrstufe"]:
+        print("\tFahrschalter Sollfahrstufe " + Textbediendaten["Sollfahrstufe"])
 
     if Textbediendaten["RS"] != Textbediendatenalt["RS"]:
         if Textbediendaten["RS"] == -1:
@@ -426,7 +480,7 @@ def Textbedienanzeige(Textbediendaten,Textbediendatenalt):
 
     if Textbediendaten["FbV"] != Textbediendatenalt["FbV"]:
         if Textbediendaten["FbV"] == 0:
-            ausgabe = "Abschluss"
+            ausgabe = "Mittelstellung"
         elif Textbediendaten["FbV"] == 1:
             ausgabe = "Betriebsbremse"
         elif Textbediendaten["FbV"] == 2:
@@ -439,7 +493,7 @@ def Textbedienanzeige(Textbediendaten,Textbediendatenalt):
             ausgabe = "Fehler"
         print("\tFührerbremsventilstellung " + ausgabe)
 
-    if Textbediendaten["DruckFbVA"] != Textbediendatenalt["DruckFbVA"]:
+    if abs(Textbediendaten["DruckFbVA"] - Textbediendatenalt["DruckFbVA"]) > 0.05:
         print("\tFührerbremsventil A-Druck " + str(round(Textbediendaten["DruckFbVA"],3)) + " bar")
 
     if Textbediendaten["FbVAg"] != Textbediendatenalt["FbVAg"]:
@@ -457,7 +511,22 @@ def Textbedienanzeige(Textbediendaten,Textbediendatenalt):
         print("\tFührerbremsventil Schlüssel " + ausgabe)
 
     if Textbediendaten["BS"] != Textbediendatenalt["BS"]:
-        print("\tBremssteller Sollwert Bremskraft " + str(round(Textbediendaten["BS"],1)) + " %")
+        if Textbediendaten["BS"] == 0:
+            ausgabe = "Mittelstellung"
+        elif Textbediendaten["BS"] == 1:
+            ausgabe = "Betriebsbremse"
+        elif Textbediendaten["BS"] == 2:
+            ausgabe = "Schnellbremse"
+        elif Textbediendaten["BS"] == 14:
+            ausgabe = "Füllstoß"
+        elif Textbediendaten["BS"] == 15:
+            ausgabe = "Fahrt"
+        else:
+            ausgabe = "Fehler"
+        print("\tBremsstellerstellung " + ausgabe)
+
+    if abs(Textbediendaten["ABS"] - Textbediendatenalt["ABS"]) > 1.0:
+        print("\tBremssteller Sollwert Bremskraft " + str(int(round(Textbediendaten["ABS"],0))) + " %")
 
     if Textbediendaten["ZbVBr"] != Textbediendatenalt["ZbVBr"]:
         if Textbediendaten["ZbVBr"] == True:
