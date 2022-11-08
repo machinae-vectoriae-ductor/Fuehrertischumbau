@@ -26,7 +26,7 @@ TH Köln, hereby disclaims all copyright interest in
 the software 'UDP-Server-Loksim3D' (a software for UDP Server for Loksim3D).
 
 Wolfgang Evers
-Versionsdatum 03.11.2022
+Versionsdatum 07.11.2022
 
 """
 import time
@@ -48,7 +48,7 @@ Zugdaten = {"Vist": 0.0,           # Geschwindigkeit in km/h
             "Simkm": 0,            # Relative Position in m
             "SimZeit": 0,          # Simulationszeit im UNIX-Format
             "Zugnr": 0,            # Zugnummer
-            "VmaxTfz": 200,        # Höchstgeschwindigkeit des Tfz in km/h
+            "VmaxZug": 200,        # Höchstgeschwindigkeit des Zugs in km/h
             "NVR": ""}             # Eindeutige Fahrzeugnummer des Tfz
 
 Zugdatenalt = Zugdaten.copy()
@@ -121,6 +121,8 @@ def FplLS3D2Zusi3(FplLS3DString):
     FplZusi3String = ""
     Startbahnhof = ""
     Endbahnhof = ""
+    GNTvorhanden = False
+    GNTAnfang = False
     
     FplLS3DZeile = FplLS3DString.split('\n')
     # print ("Fahrplanzeilen: ",len(FplLS3DZeile)-1)
@@ -128,79 +130,101 @@ def FplLS3D2Zusi3(FplLS3DString):
         FplLS3DDic = FplLS3DZeile[i].split(';')
         print ("Datenzeile",i,":", FplLS3DDic)
         try:
-            FplZusi3Zeile = '<FplZeile FplLaufweg="' + str(float(FplLS3DDic[0])) + '">\n\n'
-# Tunnelfunktion auskommentiert, da Loksim3D leider auch jede Überführung für einen Tunnel hält.
-            # if len(FplLS3DDic[7]) > 0:
-            #     if FplLS3DDic[7] == '1':
-            #         FplZusi3Zeile += '<FplTunnel FplNameText=" " FplTunnelAnfang="1"/>\n\n'
-            #     elif FplLS3DDic[7] == '3':
-            #         FplZusi3Zeile += '<FplTunnel/>\n\n'
+            FplZusi3Zeile = '<FplZeile FplLaufweg="' + str(float(FplLS3DDic[0])) + '">\n'
+            if len(FplLS3DDic[7]) > 0:
+                if FplLS3DDic[7] == '1':
+                    if len(FplLS3DDic[9]) > 0:
+                        FplZusi3Zeile += '<FplTunnel FplNameText="' + FplLS3DDic[9] + '" FplTunnelAnfang="1"/>\n'
+                    else:
+                        FplZusi3Zeile += '<FplTunnel FplNameText=" " FplTunnelAnfang="1"/>\n'
+                elif FplLS3DDic[7] == '3':
+                    FplZusi3Zeile += '<FplTunnel/>\n'
             if len(FplLS3DDic[8]) > 0:
                 if FplLS3DDic[8] == 'e1': # Zugfunk Beginn oder Bereichswechsel 
-                    FplZusi3Zeile += '<FplIcon FplIconNr="1"/>\n\n'
+                    FplZusi3Zeile += '<FplIcon FplIconNr="1"/>\n'
                 elif FplLS3DDic[8] == 'e2': # Ende Zugfunk
-                    FplZusi3Zeile += '<FplIcon FplIconNr="2"/>\n\n'
+                    FplZusi3Zeile += '<FplIcon FplIconNr="2"/>\n'
                 elif FplLS3DDic[8] == 'd1': # GNT
-                    FplZusi3Zeile += '<FplIcon FplIconNr="3"/>\n\n'
-                elif FplLS3DDic[8] == 'd2': # GNT ENde
-                    FplZusi3Zeile += '<FplIcon FplIconNr="4"/>\n\n'
+                    FplZusi3Zeile += '<FplIcon FplIconNr="3"/>\n'
+                    GNTAnfang = True
+                elif FplLS3DDic[8] == 'd2': # GNT Ende
+                    FplZusi3Zeile += '<FplIcon FplIconNr="4"/>\n'
                 elif FplLS3DDic[8] == 'c1': # LZB
-                    FplZusi3Zeile += '<FplIcon FplIconNr="5"/>\n\n'
+                    FplZusi3Zeile += '<FplIcon FplIconNr="5"/>\n'
                 elif FplLS3DDic[8] == 'c2': # LZB Ende
-                    FplZusi3Zeile += '<FplIcon FplIconNr="6"/>\n\n'
+                    FplZusi3Zeile += '<FplIcon FplIconNr="6"/>\n'
                 elif FplLS3DDic[8] == 'a1': # verkürzter Vorsignalabstand
-                    FplZusi3Zeile += '<FplIcon FplIconNr="7"/>\n\n'
+                    FplZusi3Zeile += '<FplIcon FplIconNr="7"/>\n'
                 elif FplLS3DDic[8] == 'b1': # Durchrutschweg nicht ausreichend
-                    FplZusi3Zeile += '<FplIcon FplIconNr="8"/>\n\n'
+                    FplZusi3Zeile += '<FplIcon FplIconNr="8"/>\n'
                 elif FplLS3DDic[8] == 'f1': # Fahrleitungs-Schutzstrecke
-                    FplZusi3Zeile += '<FplIcon FplIconNr="12"/>\n\n'
+                    FplZusi3Zeile += '<FplIcon FplIconNr="12"/>\n'
                 elif FplLS3DDic[8] == 'f2':
-                    FplZusi3Zeile += '<FplIcon FplIconNr="14"/>\n\n'
+                    FplZusi3Zeile += '<FplIcon FplIconNr="14"/>\n'
                 elif FplLS3DDic[8] == 'f3': # Stromabnehmer senken
-                    FplZusi3Zeile += '<FplIcon FplIconNr="15"/>\n\n'
+                    FplZusi3Zeile += '<FplIcon FplIconNr="15"/>\n'
                 elif FplLS3DDic[8] == 'f4':
-                    FplZusi3Zeile += '<FplIcon FplIconNr="16"/>\n\n'
+                    FplZusi3Zeile += '<FplIcon FplIconNr="16"/>\n'
                 elif FplLS3DDic[8] == 'y1': # Ende des anschließenden Weichenbereichs
-                    FplZusi3Zeile += '<FplIcon FplIconNr="17"/>\n\n'
+                    FplZusi3Zeile += '<FplIcon FplIconNr="17"/>\n'
                 elif FplLS3DDic[8] == 'f5': # Oberstrombegrenzung
-                    FplZusi3Zeile += '<FplIcon FplIconNr="18"/>\n\n'
+                    FplZusi3Zeile += '<FplIcon FplIconNr="18"/>\n'
                 elif FplLS3DDic[8] == 'f6': # Elektrifizierungsende
-                    FplZusi3Zeile += '<FplIcon FplIconNr="19"/>\n\n'
+                    FplZusi3Zeile += '<FplIcon FplIconNr="19"/>\n'
                 elif FplLS3DDic[8] == 'g1': # Heizverbot
-                    FplZusi3Zeile += '<FplIcon FplIconNr="20"/>\n\n'
+                    FplZusi3Zeile += '<FplIcon FplIconNr="20"/>\n'
                 elif FplLS3DDic[8] == 'g2': # Heizverbot Ende
-                    FplZusi3Zeile += '<FplIcon FplIconNr="21"/>\n\n'
+                    FplZusi3Zeile += '<FplIcon FplIconNr="21"/>\n'
             if (len(FplLS3DDic[9]) > 0
+            and len(FplLS3DDic[7]) == 0
             and not (FplLS3DDic[8] == 'c1' and FplLS3DDic[9] == '[ LZB ]')
             and not (FplLS3DDic[8] == 'c2' and FplLS3DDic[9] == '[ LZB ] Ende')):
-                FplZusi3Zeile += '<FplName FplNameText="' + FplLS3DDic[9] + '"/>\n\n'
+                if "¥" in FplLS3DDic[9] or "<" in FplLS3DDic[9] or ">" in FplLS3DDic[9]:
+                 FplZusi3Zeile += '<FplName FplNameText="gelöscht"/>\n'
+                else:
+                    FplZusi3Zeile += '<FplName FplNameText="' + FplLS3DDic[9] + '"/>\n'
             if len(FplLS3DDic[1]) > 0:
                 try:
-                    vmax = float(FplLS3DDic[1])/3.6
-                    FplZusi3Zeile += '<FplvMax vMax="' + str(vmax) + '"/>\n\n'
+                    FplZusi3Zeile += '<FplvMax vMax="' + str(float(FplLS3DDic[1])/3.6) + '"'
+                    if FplLS3DDic[3] == "1":
+                        FplZusi3Zeile += ' vMaxTyp="1"'
+                    FplZusi3Zeile += '/>\n'
                 except:
-                    print('Höchstgeschwindigkeit im Fahrplan kein Zahl!')
+                    print('Höchstgeschwindigkeit im Fahrplan keine Zahl!')
+            if len(FplLS3DDic[2]) > 0 and FplLS3DDic[1] != FplLS3DDic[2]:
+                try:
+                    FplZusi3Zeile += '<FplvMaxGNT vMax="' + str(float(FplLS3DDic[2])/3.6) + '"/>\n'
+                    GNTvorhanden = True
+# Workaround, da in Saale-Strecke keine GNT-Anfangssignal sind, ZusiDisplay aber eins erwartet. Wenn Strecke korrigiert, können die folgenden zwei Zweile wieder gelöscht werden.
+                    if not GNTAnfang:
+                       FplZusi3Zeile += '<FplIcon FplIconNr="3"/>\n'
+                       GNTAnfang = True
+                except:
+                    print('GNT-Höchstgeschwindigkeit im Fahrplan keine Zahl!')
             if len(FplLS3DDic[4]) > 0:
-                FplZusi3Zeile += '<Fplkm km="' + FplLS3DDic[4] + '"/>\n\n'
+                FplZusi3Zeile += '<Fplkm km="' + FplLS3DDic[4] + '"/>\n'
             if len(FplLS3DDic[11]) > 0:
-                FplZusi3Zeile += '<FplAnk Ank="' + datetime.today().strftime('%Y-%m-%d') + ' ' + FplLS3DDic[11] + '"/>\n\n'
+                FplZusi3Zeile += '<FplAnk Ank="' + datetime.today().strftime('%Y-%m-%d') + ' ' + FplLS3DDic[11] + '"/>\n'
                 if len(FplLS3DDic[9]) > 0:
                     Endbahnhof = FplLS3DDic[9]
             if len(FplLS3DDic[12]) > 0:
-                FplZusi3Zeile += '<FplAbf Abf="' + datetime.today().strftime('%Y-%m-%d') + ' ' + FplLS3DDic[12] + '"/>\n\n'
+                FplZusi3Zeile += '<FplAbf Abf="' + datetime.today().strftime('%Y-%m-%d') + ' ' + FplLS3DDic[12] + '"/>\n'
                 if len(Startbahnhof) == 0 and len(FplLS3DDic[9]) > 0:
                     Startbahnhof = FplLS3DDic[9]
-            FplZusi3Zeile += "</FplZeile>\n\n"
+            FplZusi3Zeile += "</FplZeile>\n"
             FplZusi3String += FplZusi3Zeile
             print ("FplZusi3Zeile: ", FplZusi3Zeile)
         except:
             print('Position im Fahrplan keine Zahl!')
-    FplZusi3Head  = '<?xml version="1.0" encoding="UTF-8"?>\n\n<Zusi>\n\n'
-    FplZusi3Head += '<Info DateiTyp="Buchfahrplan" Version="A.1" MinVersion="A.1">\n\n'
-    FplZusi3Head += '<AutorEintrag/>\n\n</Info>\n\n'
-    FplZusi3Head += '<Buchfahrplan Gattung="TH" Nummer="42" Zuglauf="' + Startbahnhof + ' - ' + Endbahnhof + '" BR="111" Masse="270000" spMax="44.44444444444444" '
-    FplZusi3Head += 'Bremsh="1.42" Laenge="126.0" kmStart="0.0" BremsstellungZug="5">\n\n'
-    FplZusiEnd = '</Buchfahrplan>\n\n</Zusi>\n\n'
+    FplZusi3Head  = '<?xml version="1.0" encoding="UTF-8"?>\n<Zusi>\n'
+    FplZusi3Head += '<Info DateiTyp="Buchfahrplan" Version="A.1" MinVersion="A.1">\n'
+    FplZusi3Head += '<AutorEintrag/>\n</Info>\n'
+    FplZusi3Head += '<Buchfahrplan Gattung="TH" Nummer="42" Zuglauf="' + Startbahnhof + ' - ' + Endbahnhof + '" BR="111" Masse="270000"'
+    FplZusi3Head += ' spMax="' + str(float(Zugdaten["VmaxZug"]) / 3.6) + '" Bremsh="1.42" Laenge="126.0" kmStart="0.0" BremsstellungZug="5"'
+    if GNTvorhanden:
+        FplZusi3Head += ' GNTSpalte="1" LaengeLoks="126.0"'
+    FplZusi3Head += '>\n'
+    FplZusiEnd = '</Buchfahrplan>\n</Zusi>\n'
     FplZusi3String = FplZusi3Head + FplZusi3String + FplZusiEnd
     return FplZusi3String
 
@@ -216,17 +240,19 @@ class FahrplanEinlesenThread(threading.Thread):
         FplLS3DString = ""
         FplLS3DStringalt = ""
         while True:
+            time.sleep(5)
             data, addr = FplDatenSocket.recvfrom(81920) # buffer size is 81920 bytes
             # print(str("Adress from Loksim {}".format(addr[0])))
             # print("Anzahl der Zeichen des UDP-Pakets:\t",len(data))
             FplLS3DString = data.decode()
             if FplLS3DStringalt != FplLS3DString:
                 FplZusi3 = FplLS3D2Zusi3(FplLS3DString)
+                # print(FplZusi3)
                 # with open("EBuLa.xml", "r", encoding="utf-8-sig") as EBuLaDatei:
                 #         FplZusi3 = EBuLaDatei.read()
                 # EBuLaDatei.close()
                 FplZusi3BA = FplZusi3.encode(encoding = 'utf-8-sig')
-                print(FplZusi3BA)
+                # print(FplZusi3BA)
                 while (not Verbindungsergebnis) or (not Datenanforderungsergebnis):
                     time.sleep(1)
                 TCPFplSendeDaten = bytearray()
@@ -234,11 +260,8 @@ class FahrplanEinlesenThread(threading.Thread):
                                          0x02, 0x00,
                                          0x00, 0x00, 0x00, 0x00,
                                          0x0C, 0x00))
-                # TCPFplSendeDaten.extend((0x09, 0x00, 0x00, 0x00))
                 TCPFplSendeDaten.extend(struct.pack("I", (len(FplZusi3BA) + 2)))
                 TCPFplSendeDaten.extend((0x04, 0x00))              # Fahrplan.xml
-                # TCPFplSendeDaten.extend((0xEF, 0xBB, 0xBF, 0x3C,
-                #                          0x3F, 0x78, 0x6C))
                 TCPFplSendeDaten.extend(FplZusi3BA)
                 TCPFplSendeDaten.extend((0xFF, 0xFF, 0xFF, 0xFF,
                                          0xFF, 0xFF, 0xFF, 0xFF))
@@ -254,7 +277,7 @@ class FahrplanEinlesenThread(threading.Thread):
             if stop_threads:
                 FplDatenSocket.close()    
                 break
-    
+
 class ZugdatenEinlesenThread(threading.Thread):
     def __init__(self):
         threading.Thread.__init__(self)
@@ -275,7 +298,8 @@ class ZugdatenEinlesenThread(threading.Thread):
             # print("Datum: ", date.today())
             # print("Datum: ", int(time.time() / 86400))
             hilf = struct.unpack("H",UDPDaten[ 4: 6])
-            # print("Höchstgeschwindigkeit: ", hilf[0], " km/h")
+            Zugdaten["VmaxZug"] = hilf[0]
+            # print("Höchstgeschwindigkeit des Zuges: ", Zugdaten["VmaxZug"], " km/h")
             hilf = struct.unpack("I",UDPDaten[ 6:10])
             Zugdaten["Simkm"] = hilf[0]
             # print("Streckenposition: ", Zugdaten["Simkm"], "m")
@@ -309,7 +333,7 @@ class ZugdatenEinlesenThread(threading.Thread):
             if stop_threads:
                 ZugdatenSocket.close()    
                 break
-    
+
 # Beginn des Hauptprogrammes
 
 ZusiSocket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)    # Erstellen des TCP Socket für Zusi
